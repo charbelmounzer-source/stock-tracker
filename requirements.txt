@@ -1,0 +1,6 @@
+streamlit
+pandas
+altair
+alpaca-py
+python-dotenv
+requests
