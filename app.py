@@ -7,6 +7,8 @@ from edgar_data import get_full_statement, compute_valuation_ratios
 from indicators import compute_rsi, compute_std_dev
 from config import symbols, ticker_to_cik
 from queries import load_companies, load_prices, load_fundamentals
+from fred_data import get_macro_snapshot
+from config import get_macro_series_for_sic
 
 
 def get_latest_price(ticker, prices_df):
@@ -181,7 +183,10 @@ with st.container(border=True):
     with col15:
         st.metric("Price to Book", f"{valuation['price_to_book']:.2f}x" if valuation['price_to_book'] else "N/A")
 
-    if chosen_period != sorted_periods[0]:  # not the latest year
+    if valuation['ev_to_ebitda'] is None:
+        st.caption("ℹ️ EV/EBITDA unavailable — this company doesn't report a standalone operating income figure in recent filings.")
+
+    if chosen_period != sorted_periods[0]:
         st.caption(
             "⚠️ Valuation ratios use today's price against this year's fundamentals "
             "— not a true historical valuation."
@@ -200,3 +205,22 @@ with st.expander("View full financial statement (raw EDGAR data)"):
         f"[View this company's filings directly on SEC EDGAR ↗]"
         f"(https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={ticker_to_cik[chosen_stock]}&type=10-K)"
     )
+
+# --- Macro Exposure ---
+with st.container(border=True):
+    st.markdown("##### 🌍 Macro Exposure")
+
+    macro_series, is_specific = get_macro_series_for_sic(company_row["sic_code"])
+    if not is_specific:
+        st.caption("No sector-specific mapping yet — showing general economic indicators.")
+
+    snapshot = get_macro_snapshot(macro_series)
+
+    cols = st.columns(len(snapshot))
+    for col, (label, date, value, note) in zip(cols, snapshot):
+        with col:
+            display_value = f"{value:.2f}" if value is not None else "N/A"
+            st.metric(label, display_value)
+            if date:
+                st.caption(f"as of {date}")
+            st.caption(f"💡 {note}")

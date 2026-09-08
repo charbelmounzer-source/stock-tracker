@@ -47,6 +47,8 @@ def get_annual_metric(facts, tag_candidates, unit="USD", category="us-gaap"):
     share-count metrics like shares outstanding.
     `category` defaults to "us-gaap", but some companies report certain
     facts (like shares outstanding) under "dei" instead.
+    Filters out entries mislabeled as "FY" that are actually quarterly/stub
+    periods (a real fiscal year should span ~330-400 days).
     Returns a dict of {period_end_date: value}, deduped to the latest filing.
     """
     latest_per_period = {}
@@ -64,6 +66,15 @@ def get_annual_metric(facts, tag_candidates, unit="USD", category="us-gaap"):
             annual_values = [e for e in values if e["fp"] == "FY"]
 
             for entry in annual_values:
+                # Sanity check: skip entries mislabeled as FY that are actually
+                # quarterly/stub periods (real fiscal years span ~330-400 days)
+                if "start" in entry:
+                    start = pd.Timestamp(entry["start"])
+                    end = pd.Timestamp(entry["end"])
+                    duration_days = (end - start).days
+                    if duration_days < 330 or duration_days > 400:
+                        continue
+
                 period_end = entry["end"]
                 if period_end not in latest_per_period or entry["filed"] > latest_per_period[period_end]["filed"]:
                     latest_per_period[period_end] = entry
@@ -109,7 +120,7 @@ def get_fundamentals_all_periods(ticker, cik):
     response = requests.get(url, headers=headers)
     facts = response.json()["facts"]
 
-    revenue = get_annual_metric(facts, ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues"])
+    revenue = get_annual_metric(facts, ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "RevenuesNetOfInterestExpense"])
     shares_outstanding_gaap = get_annual_metric(facts, ["CommonStockSharesOutstanding"], unit="shares", category="us-gaap")
     shares_outstanding_dei = get_annual_metric(facts, ["EntityCommonStockSharesOutstanding"], unit="shares", category="dei")
     shares_outstanding_fallback = get_annual_metric(

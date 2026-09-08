@@ -1,12 +1,13 @@
 import sys
 import os
 from datetime import datetime, timezone
+from google.cloud import bigquery  # <-- add this
 from alpaca.trading.client import TradingClient
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from bq_client import bq_client, project_id
+from config import ticker_to_cik
 from edgar_data import get_company_info, get_earliest_filing_date
-from config import  ticker_to_cik
 
 api_key = os.environ["ALPACA_API_KEY"]
 secret_key = os.environ["ALPACA_SECRET_KEY"]
