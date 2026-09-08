@@ -1,7 +1,7 @@
 import sys
 import os
 from datetime import datetime, date, timedelta, timezone
-from google.cloud import bigquery  # <-- add this back, we still need bigquery.QueryJobConfig etc.
+from google.cloud import bigquery
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -9,12 +9,11 @@ from alpaca.data.enums import DataFeed
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from bq_client import bq_client, project_id
+from config import symbols
 
 api_key = os.environ["ALPACA_API_KEY"]
 secret_key = os.environ["ALPACA_SECRET_KEY"]
 alpaca_client = StockHistoricalDataClient(api_key, secret_key)
-
-symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "JPM", "V", "NFLX"]
 
 table_id = f"{project_id}.stock_data.daily_prices"
 

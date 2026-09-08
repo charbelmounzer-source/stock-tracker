@@ -6,13 +6,7 @@ from google.cloud import bigquery  # <-- add this back
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from bq_client import bq_client, project_id
 from edgar_data import get_fundamentals_all_periods
-
-ticker_to_cik = {
-    'NVDA': '0001045810', 'AAPL': '0000320193', 'GOOGL': '0001652044',
-    'MSFT': '0000789019', 'AMZN': '0001018724', 'META': '0001326801',
-    'TSLA': '0001318605', 'JPM': '0000019617', 'V': '0001403161',
-    'NFLX': '0001065280'
-}
+from config import  ticker_to_cik
 
 table_id = f"{project_id}.stock_data.fundamentals"
 

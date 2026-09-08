@@ -6,17 +6,12 @@ from alpaca.trading.client import TradingClient
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from bq_client import bq_client, project_id
 from edgar_data import get_company_info, get_earliest_filing_date
+from config import  ticker_to_cik
 
 api_key = os.environ["ALPACA_API_KEY"]
 secret_key = os.environ["ALPACA_SECRET_KEY"]
 trading_client = TradingClient(api_key, secret_key, paper=True)
 
-ticker_to_cik = {
-    'NVDA': '0001045810', 'AAPL': '0000320193', 'GOOGL': '0001652044',
-    'MSFT': '0000789019', 'AMZN': '0001018724', 'META': '0001326801',
-    'TSLA': '0001318605', 'JPM': '0000019617', 'V': '0001403161',
-    'NFLX': '0001065280'
-}
 
 table_id = f"{project_id}.stock_data.companies"
 
