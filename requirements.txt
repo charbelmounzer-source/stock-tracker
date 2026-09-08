@@ -4,3 +4,4 @@ altair
 alpaca-py
 python-dotenv
 requests
+google-cloud-bigquery
