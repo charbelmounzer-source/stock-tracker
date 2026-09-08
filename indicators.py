@@ -23,3 +23,25 @@ def compute_rsi(closes, period=14):
     rsi = rsi.where(avg_loss != 0, 100)
 
     return rsi
+
+import numpy as np
+
+
+def compute_std_dev(closes, window=252):
+    """
+    Annualized standard deviation of daily returns (volatility).
+    `closes` should be a pandas Series of closing prices, sorted oldest to newest.
+    `window=252` approximates 1 trading year -- uses less if not enough history.
+    """
+    daily_returns = closes.pct_change().dropna()
+
+    if len(daily_returns) < 2:
+        return None
+
+    window = min(window, len(daily_returns))
+    recent_returns = daily_returns.tail(window)
+
+    daily_std = recent_returns.std()
+    annualized_std = daily_std * np.sqrt(252)  # scales daily volatility up to a yearly figure
+
+    return annualized_std

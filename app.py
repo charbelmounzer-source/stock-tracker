@@ -3,9 +3,8 @@ import streamlit as st
 from datetime import date, timedelta
 import altair as alt
 from bq_client import bq_client, project_id
-from edgar_data import get_full_statement
-from edgar_data import compute_valuation_ratios
-from indicators import compute_rsi
+from edgar_data import get_full_statement, compute_valuation_ratios
+from indicators import compute_rsi, compute_std_dev
 from config import symbols, ticker_to_cik
 from queries import load_companies, load_prices, load_fundamentals
 
@@ -49,14 +48,15 @@ stock_prices = prices_df[prices_df["ticker"] == chosen_stock].copy()
 stock_prices["price_date"] = pd.to_datetime(stock_prices["price_date"])
 series = stock_prices.set_index("price_date")["close"]
 
-# Compute RSI on the full price history (not the filtered range) for accuracy,
-# then align it to whatever date range is currently displayed
+# Compute RSI/volatility on the full price history (not the filtered range) for
+# accuracy, then align to whatever date range is currently displayed
 full_stock_prices = prices_df[prices_df["ticker"] == chosen_stock].copy()
 full_stock_prices["price_date"] = pd.to_datetime(full_stock_prices["price_date"])
 full_stock_prices = full_stock_prices.sort_values("price_date")
 full_stock_prices["rsi"] = compute_rsi(full_stock_prices["close"])
 
 latest_rsi = full_stock_prices["rsi"].iloc[-1]
+volatility = compute_std_dev(full_stock_prices["close"])
 
 today = date.today()
 if date_range == "L30D":
@@ -88,15 +88,30 @@ chart = (
 
 st.altair_chart(chart, use_container_width=True)
 
-st.write("Key stats (for selected date range):")
+# --- Price Stats ---
+with st.container(border=True):
+    st.markdown("##### 📈 Price Stats")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Max price", f"${series.max():,.2f}")
+    with col2:
+        st.metric("Min price", f"${series.min():,.2f}")
+    with col3:
+        st.metric("Average price", f"${series.mean():,.2f}")
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Max price", f"${series.max():,.2f}")
-with col2:
-    st.metric("Min price", f"${series.min():,.2f}")
-with col3:
-    st.metric("Average price", f"${series.mean():,.2f}")
+# --- Technical & Risk ---
+with st.container(border=True):
+    st.markdown("##### 🎯 Technical & Risk")
+    col_rsi, col_vol = st.columns(2)
+    with col_rsi:
+        rsi_label = "Neutral"
+        if latest_rsi >= 70:
+            rsi_label = "Overbought"
+        elif latest_rsi <= 30:
+            rsi_label = "Oversold"
+        st.metric("RSI (14-day)", f"{latest_rsi:.1f}", rsi_label)
+    with col_vol:
+        st.metric("Annualized Volatility", f"{volatility:.1%}" if volatility else "N/A")
 
 st.divider()
 st.subheader(f"Fundamentals — {company_row['company_name']}")
@@ -114,68 +129,68 @@ fundamentals = stock_fundamentals[
 current_price = get_latest_price(chosen_stock, prices_df)
 valuation = compute_valuation_ratios(fundamentals.to_dict(), current_price)
 
-col4, col5, col6 = st.columns(3)
-with col4:
-    st.metric(
-        "Revenue",
-        f"${fundamentals['revenue']/1_000_000:,.1f}M" if pd.notna(fundamentals['revenue']) else "N/A",
-    )
-with col5:
-    st.metric(
-        "Net margin",
-        f"{fundamentals['net_margin']:.1%}" if pd.notna(fundamentals['net_margin']) else "N/A",
-    )
-with col6:
-    st.metric(
-        "Gross margin",
-        f"{fundamentals['gross_margin']:.1%}" if pd.notna(fundamentals['gross_margin']) else "N/A",
-    )
+# --- Profitability ---
+with st.container(border=True):
+    st.markdown("##### 💰 Profitability")
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        st.metric(
+            "Revenue",
+            f"${fundamentals['revenue']/1_000_000:,.1f}M" if pd.notna(fundamentals['revenue']) else "N/A",
+        )
+    with col5:
+        st.metric(
+            "Net margin",
+            f"{fundamentals['net_margin']:.1%}" if pd.notna(fundamentals['net_margin']) else "N/A",
+        )
+    with col6:
+        st.metric(
+            "Gross margin",
+            f"{fundamentals['gross_margin']:.1%}" if pd.notna(fundamentals['gross_margin']) else "N/A",
+        )
 
-col7, col8, col9 = st.columns(3)
-with col7:
-    st.metric(
-        "Operating cash flow",
-        f"${fundamentals['operating_cash_flow']/1_000_000:,.1f}M"
-        if pd.notna(fundamentals['operating_cash_flow']) else "N/A",
-    )
-with col8:
-    st.metric(
-        "Leverage (Liabilities/Equity)",
-        f"{fundamentals['leverage']:.2f}x" if pd.notna(fundamentals['leverage']) else "N/A",
-    )
-with col9:
-    st.metric(
-        "ROE",
-        f"{fundamentals['roe']:.1%}" if pd.notna(fundamentals['roe']) else "N/A",
-    )
+# --- Financial Health ---
+with st.container(border=True):
+    st.markdown("##### 🏦 Financial Health")
+    col7, col8, col9 = st.columns(3)
+    with col7:
+        st.metric(
+            "Operating cash flow",
+            f"${fundamentals['operating_cash_flow']/1_000_000:,.1f}M"
+            if pd.notna(fundamentals['operating_cash_flow']) else "N/A",
+        )
+    with col8:
+        st.metric(
+            "Leverage (Liab/Equity)",
+            f"{fundamentals['leverage']:.2f}x" if pd.notna(fundamentals['leverage']) else "N/A",
+        )
+    with col9:
+        st.metric(
+            "ROE",
+            f"{fundamentals['roe']:.1%}" if pd.notna(fundamentals['roe']) else "N/A",
+        )
 
-col10, col11, col12 = st.columns(3)
-with col10:
+# --- Valuation ---
+with st.container(border=True):
+    st.markdown("##### 📊 Valuation")
+    col13, col14, col15 = st.columns(3)
+    with col13:
+        st.metric("EV/Sales", f"{valuation['ev_to_sales']:.2f}x" if valuation['ev_to_sales'] else "N/A")
+    with col14:
+        st.metric("EV/EBITDA", f"{valuation['ev_to_ebitda']:.2f}x" if valuation['ev_to_ebitda'] else "N/A")
+    with col15:
+        st.metric("Price to Book", f"{valuation['price_to_book']:.2f}x" if valuation['price_to_book'] else "N/A")
+
+    if chosen_period != sorted_periods[0]:  # not the latest year
+        st.caption(
+            "⚠️ Valuation ratios use today's price against this year's fundamentals "
+            "— not a true historical valuation."
+        )
+
+# --- Company Info ---
+with st.container(border=True):
+    st.markdown("##### 🏢 Company Info")
     st.metric("Earliest EDGAR filing", str(company_row['earliest_filing_date']))
-with col11:
-    st.empty()
-with col12:
-    st.empty()
-
-col_rsi = st.columns(1)[0]
-with col_rsi:
-    rsi_label = "Neutral"
-    if latest_rsi >= 70:
-        rsi_label = "Overbought"
-    elif latest_rsi <= 30:
-        rsi_label = "Oversold"
-    st.metric("RSI (14-day)", f"{latest_rsi:.1f}", rsi_label)
-
-col13, col14, col15 = st.columns(3)
-with col13:
-    st.metric("EV/Sales", f"{valuation['ev_to_sales']:.2f}x" if valuation['ev_to_sales'] else "N/A")
-with col14:
-    st.metric("EV/EBITDA", f"{valuation['ev_to_ebitda']:.2f}x" if valuation['ev_to_ebitda'] else "N/A")
-with col15:
-    st.metric("Price to Book", f"{valuation['price_to_book']:.2f}x" if valuation['price_to_book'] else "N/A")
-
-if chosen_period != sorted_periods[0]:  # not the latest year
-    st.caption("⚠️ Valuation ratios use today's price against this year's fundamentals — not a true historical valuation.")
 
 with st.expander("View full financial statement (raw EDGAR data)"):
     full_statement = get_full_statement(ticker_to_cik[chosen_stock], chosen_period.isoformat())
