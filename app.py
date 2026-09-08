@@ -4,6 +4,8 @@ from datetime import date, timedelta
 import altair as alt
 from bq_client import bq_client, project_id
 from edgar_data import get_full_statement
+from edgar_data import compute_valuation_ratios
+from indicators import compute_rsi
 
 symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "JPM", "V", "NFLX"]
 
@@ -39,11 +41,17 @@ def load_prices():
 def load_fundamentals():
     query = f"""
         SELECT ticker, period_end, revenue, net_margin, gross_margin,
-               operating_cash_flow, leverage, roe
+               operating_cash_flow, leverage, roe,
+               shares_outstanding, cash, total_debt, ebitda, total_equity
         FROM `{project_id}.stock_data.fundamentals`
         ORDER BY period_end
     """
     return bq_client.query(query).to_dataframe()
+
+def get_latest_price(ticker, prices_df):
+    ticker_prices = prices_df[prices_df["ticker"] == ticker]
+    latest_row = ticker_prices.sort_values("price_date").iloc[-1]
+    return latest_row["close"]
 
 
 companies_df = load_companies()
@@ -78,6 +86,15 @@ st.caption(
 stock_prices = prices_df[prices_df["ticker"] == chosen_stock].copy()
 stock_prices["price_date"] = pd.to_datetime(stock_prices["price_date"])
 series = stock_prices.set_index("price_date")["close"]
+
+# Compute RSI on the full price history (not the filtered range) for accuracy,
+# then align it to whatever date range is currently displayed
+full_stock_prices = prices_df[prices_df["ticker"] == chosen_stock].copy()
+full_stock_prices["price_date"] = pd.to_datetime(full_stock_prices["price_date"])
+full_stock_prices = full_stock_prices.sort_values("price_date")
+full_stock_prices["rsi"] = compute_rsi(full_stock_prices["close"])
+
+latest_rsi = full_stock_prices["rsi"].iloc[-1]
 
 today = date.today()
 if date_range == "L30D":
@@ -132,6 +149,9 @@ fundamentals = stock_fundamentals[
     stock_fundamentals["period_end"].dt.date == chosen_period
 ].iloc[0]
 
+current_price = get_latest_price(chosen_stock, prices_df)
+valuation = compute_valuation_ratios(fundamentals.to_dict(), current_price)
+
 col4, col5, col6 = st.columns(3)
 with col4:
     st.metric(
@@ -174,6 +194,26 @@ with col11:
     st.empty()
 with col12:
     st.empty()
+
+col_rsi = st.columns(1)[0]
+with col_rsi:
+    rsi_label = "Neutral"
+    if latest_rsi >= 70:
+        rsi_label = "Overbought"
+    elif latest_rsi <= 30:
+        rsi_label = "Oversold"
+    st.metric("RSI (14-day)", f"{latest_rsi:.1f}", rsi_label)
+
+col13, col14, col15 = st.columns(3)
+with col13:
+    st.metric("EV/Sales", f"{valuation['ev_to_sales']:.2f}x" if valuation['ev_to_sales'] else "N/A")
+with col14:
+    st.metric("EV/EBITDA", f"{valuation['ev_to_ebitda']:.2f}x" if valuation['ev_to_ebitda'] else "N/A")
+with col15:
+    st.metric("Price to Book", f"{valuation['price_to_book']:.2f}x" if valuation['price_to_book'] else "N/A")
+
+if chosen_period != sorted_periods[0]:  # not the latest year
+    st.caption("⚠️ Valuation ratios use today's price against this year's fundamentals — not a true historical valuation.")
 
 with st.expander("View full financial statement (raw EDGAR data)"):
     full_statement = get_full_statement(ticker_to_cik[chosen_stock], chosen_period.isoformat())

@@ -55,6 +55,11 @@ for ticker, cik in ticker_to_cik.items():
             "operating_cash_flow": metrics["operating_cash_flow"],
             "leverage": metrics["leverage"],
             "roe": metrics["roe"],
+            "shares_outstanding": metrics["shares_outstanding"],
+            "cash": metrics["cash"],
+            "total_debt": metrics["total_debt"],
+            "ebitda": metrics["ebitda"],
+            "total_equity": metrics["total_equity"],
             "last_updated": datetime.now(timezone.utc).isoformat(),
         })
 
