@@ -9,6 +9,7 @@ from config import symbols, ticker_to_cik
 from queries import load_companies, load_prices, load_fundamentals
 from fred_data import get_macro_snapshot
 from config import get_macro_series_for_sic
+from ai_analysis import build_stock_summary, get_ai_analysis, get_cached_ai_analysis
 
 
 def get_latest_price(ticker, prices_df):
@@ -224,3 +225,20 @@ with st.container(border=True):
             if date:
                 st.caption(f"as of {date}")
             st.caption(f"💡 {note}")
+
+
+# --- AI Analysis ---
+with st.container(border=True):
+    st.markdown("##### 🤖 AI Analysis")
+    st.caption("Informational only — not financial advice.")
+
+    if st.button("Generate AI Analysis", key="ai_analysis_btn"):
+        with st.spinner("Analyzing..."):
+            summary = build_stock_summary(chosen_stock, companies_df, prices_df, fundamentals_df)
+            summary_tuple = tuple(sorted(summary.items()))
+            analysis = get_cached_ai_analysis(chosen_stock, summary_tuple)
+            st.session_state["ai_analysis_result"] = analysis
+            st.session_state["ai_analysis_ticker"] = chosen_stock
+
+    if "ai_analysis_result" in st.session_state and st.session_state.get("ai_analysis_ticker") == chosen_stock:
+        st.markdown(st.session_state["ai_analysis_result"])
