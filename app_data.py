@@ -3,6 +3,7 @@
 Reads BigQuery by default. Set LOCAL_DATA_DIR to a folder produced by
 `python -m pipeline --local DIR` to browse a trial run without BigQuery.
 """
+import html
 import os
 from pathlib import Path
 
@@ -76,3 +77,36 @@ def times(x) -> str:
 
 def number(x, digits: int = 1) -> str:
     return "n/a" if pd.isna(x) else f"{x:,.{digits}f}"
+
+
+GREEN, RED = "#1a9f53", "#e5484d"
+
+
+def card(title: str, items: list[tuple[str, str, str]]):
+    """A bordered card of metric tiles. items = (label, formatted value, tooltip).
+
+    Tiles wrap onto as many rows as needed, so labels and values are never cut off.
+    Metrics with no value are listed in one muted line instead of a row of "n/a".
+    """
+    def clean(text):  # "$" would otherwise start a LaTeX formula in Streamlit markdown
+        return html.escape(str(text)).replace("$", "&#36;")
+
+    tiles, missing = [], []
+    for label, value, tooltip in items:
+        if value == "n/a":
+            missing.append(label)
+            continue
+        colour = GREEN if value.startswith("+") else RED if value.startswith("-") else "inherit"
+        tiles.append(
+            f'<div title="{clean(tooltip)}">'
+            f'<div style="font-size:0.8rem;opacity:0.65;line-height:1.3">{clean(label)}</div>'
+            f'<div style="font-size:1.4rem;font-weight:600;line-height:1.35;color:{colour}">{clean(value)}</div>'
+            '</div>')
+    note = (f'<div style="font-size:0.78rem;opacity:0.55;margin-top:10px">Not available: '
+            f'{clean(", ".join(missing))}</div>') if missing else ""
+    st.markdown(
+        '<div style="border:1px solid rgba(128,128,128,0.3);border-radius:10px;padding:14px 18px;margin-bottom:14px">'
+        f'<div style="font-weight:600;margin-bottom:10px">{clean(title)}</div>'
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px 18px">'
+        f'{"".join(tiles)}</div>{note}</div>',
+        unsafe_allow_html=True)

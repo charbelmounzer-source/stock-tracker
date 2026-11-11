@@ -1,34 +1,29 @@
 import pandas as pd
 import streamlit as st
 
-from app_data import doc, load, money, number, pct, share, times
+from app_data import card, doc, load, money, number, pct, share, times
 from pipeline import config
 
 SNAP = "stock_snapshot"
-
-
-def cards(title: str, items: list[tuple[str, str, str]]):
-    """A bordered row of metrics. items = (label, formatted value, snapshot column for the tooltip)."""
-    with st.container(border=True):
-        st.markdown(f"##### {title}")
-        for column, (label, value, source) in zip(st.columns(len(items)), items):
-            column.metric(label, value, help=doc(SNAP, source))
-
 
 snapshot = load(SNAP).sort_values("market_cap", ascending=False)
 names = dict(zip(snapshot["ticker"], snapshot["company_name"]))
 ticker = st.selectbox("Stock", list(snapshot["ticker"]), format_func=lambda t: f"{names[t]} ({t})")
 s = snapshot.set_index("ticker").loc[ticker]
 
+
+def metrics(title: str, items: list[tuple[str, str, str]]):
+    """items = (label, formatter, snapshot column). The tooltip is the column's description."""
+    card(title, [(label, fmt(s[column]), doc(SNAP, column)) for label, fmt, column in items])
+
+
 st.title(f"{s['company_name']} ({ticker})")
 st.caption(f"{s['sector']} · {s['sic_description']} · price as of {s['price_date']:%d %b %Y} · "
            "for information only, not investment advice")
 
-top = st.columns(4)
-top[0].metric("Price", money(s["close"]), pct(s["ret_1d"]))
-top[1].metric("Market cap", money(s["market_cap"]), help=doc(SNAP, "market_cap"))
-top[2].metric("1-year change", pct(s["ret_1y"]), help=doc(SNAP, "ret_1y"))
-top[3].metric("vs S&P 500 (1y)", pct(s["ret_1y_vs_benchmark"]), help=doc(SNAP, "ret_1y_vs_benchmark"))
+metrics("Today", [("Price", money, "close"), ("Today's change", pct, "ret_1d"),
+                  ("Market cap", money, "market_cap"), ("1-year change", pct, "ret_1y"),
+                  ("vs S&P 500, 1 year", pct, "ret_1y_vs_benchmark")])
 
 # ---------------------------------------------------------------- price chart
 prices = load("prices", ticker).sort_values("price_date")
@@ -38,33 +33,27 @@ if ranges[chosen]:
     prices = prices[prices["price_date"] >= prices["price_date"].max() - pd.Timedelta(days=ranges[chosen])]
 st.line_chart(prices, x="price_date", y="close", x_label="", y_label="Price (USD, split-adjusted)")
 
-cards("Performance", [
-    ("1 month", pct(s["ret_1m"]), "ret_1m"), ("Year to date", pct(s["ret_ytd"]), "ret_ytd"),
-    ("5 years", pct(s["ret_5y"]), "ret_5y"), ("From 52-week high", pct(s["pct_from_high_52w"]), "pct_from_high_52w"),
-    ("Volatility", share(s["volatility_1y"]), "volatility_1y"), ("Beta", number(s["beta_1y"], 2), "beta_1y"),
-])
-cards("Valuation — is it expensive?", [
-    ("P/E", times(s["pe_ttm"]), "pe_ttm"), ("Price / sales", times(s["ps_ttm"]), "ps_ttm"),
-    ("Price / book", times(s["pb"]), "pb"), ("EV / EBITDA", times(s["ev_to_ebitda"]), "ev_to_ebitda"),
-    ("FCF yield", share(s["fcf_yield"]), "fcf_yield"), ("Dividend yield", share(s["dividend_yield"]), "dividend_yield"),
-])
-cards("Growth — is it getting bigger?", [
-    ("Revenue (12m)", money(s["revenue_ttm"]), "revenue_ttm"), ("Revenue growth", pct(s["revenue_yoy"]), "revenue_yoy"),
-    ("Latest quarter", pct(s["revenue_yoy_quarter"]), "revenue_yoy_quarter"),
-    ("Profit growth", pct(s["net_income_yoy"]), "net_income_yoy"), ("EPS growth", pct(s["eps_diluted_yoy"]), "eps_diluted_yoy"),
-])
-cards("Profitability — does it make money?", [
-    ("Net income (12m)", money(s["net_income_ttm"]), "net_income_ttm"), ("Gross margin", share(s["gross_margin"]), "gross_margin"),
-    ("Operating margin", share(s["operating_margin"]), "operating_margin"), ("Net margin", share(s["net_margin"]), "net_margin"),
-    ("Return on equity", share(s["roe"]), "roe"),
-])
-cards("Financial health — can it pay its bills?", [
-    ("Cash", money(s["cash"]), "cash"), ("Total debt", money(s["total_debt"]), "total_debt"),
-    ("Debt / equity", times(s["debt_to_equity"]), "debt_to_equity"), ("Current ratio", times(s["current_ratio"]), "current_ratio"),
-    ("Free cash flow (12m)", money(s["free_cash_flow_ttm"]), "free_cash_flow_ttm"),
-])
+metrics("Performance", [
+    ("1 month", pct, "ret_1m"), ("Year to date", pct, "ret_ytd"), ("3 years", pct, "ret_3y"),
+    ("5 years", pct, "ret_5y"), ("From 52-week high", pct, "pct_from_high_52w"),
+    ("Volatility", share, "volatility_1y"), ("Beta", lambda x: number(x, 2), "beta_1y")])
+metrics("Valuation — is it expensive?", [
+    ("Price / earnings", times, "pe_ttm"), ("Price / sales", times, "ps_ttm"), ("Price / book", times, "pb"),
+    ("EV / EBITDA", times, "ev_to_ebitda"), ("Free cash flow yield", share, "fcf_yield"),
+    ("Dividend yield", share, "dividend_yield")])
+metrics("Growth — is it getting bigger?", [
+    ("Revenue, last 12 months", money, "revenue_ttm"), ("Revenue growth", pct, "revenue_yoy"),
+    ("Latest quarter growth", pct, "revenue_yoy_quarter"), ("Profit growth", pct, "net_income_yoy"),
+    ("EPS growth", pct, "eps_diluted_yoy")])
+metrics("Profitability — does it make money?", [
+    ("Net income, last 12 months", money, "net_income_ttm"), ("Gross margin", share, "gross_margin"),
+    ("Operating margin", share, "operating_margin"), ("Net margin", share, "net_margin"),
+    ("Return on equity", share, "roe")])
+metrics("Financial health — can it pay its bills?", [
+    ("Cash", money, "cash"), ("Total debt", money, "total_debt"), ("Debt / equity", times, "debt_to_equity"),
+    ("Current ratio", times, "current_ratio"), ("Free cash flow, last 12 months", money, "free_cash_flow_ttm")])
 if s["is_financial"]:
-    st.caption("Bank, broker or insurer: debt, EBITDA and cash-flow metrics are not comparable and are left empty.")
+    st.caption("Bank, broker or insurer: debt, EBITDA and cash-flow metrics are not comparable, so they are not shown.")
 if pd.notna(s["fundamentals_period_end"]):
     st.caption(f"Financials: 12 months to {s['fundamentals_period_end']:%d %b %Y}, "
                f"filed {s['reported_date']:%d %b %Y}. Source: SEC EDGAR.")
