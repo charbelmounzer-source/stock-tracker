@@ -191,6 +191,8 @@ def combine_splits(detected: pd.DataFrame, provider: pd.DataFrame | None) -> pd.
         days = (same["ex_date"] - ex_date).dt.days
         if not ((days >= -120) & (days <= 250)).any():
             extra.append((ex_date, ratio))
+    if not extra:
+        return detected
     return pd.concat([detected, pd.DataFrame(extra, columns=["ex_date", "split_ratio"])],
                      ignore_index=True).sort_values("ex_date").reset_index(drop=True)
 
