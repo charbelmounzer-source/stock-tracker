@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from pipeline import config  # noqa: F401  (loads .env before LOCAL_DATA_DIR is read)
 from pipeline.schemas import TABLES
 
 LOCAL_DIR = os.environ.get("LOCAL_DATA_DIR")
