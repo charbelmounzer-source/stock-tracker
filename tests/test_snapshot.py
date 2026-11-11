@@ -49,17 +49,30 @@ def test_beta_against_benchmark():
     assert stats.loc["SPY", "ret_1y_vs_benchmark"] == pytest.approx(0.0)
 
 
+ACTION_COLUMNS = ["ticker", "action_type", "ex_date", "split_ratio", "cash_amount", "is_special"]
+
+
 def test_trailing_dividends_are_put_on_todays_share_basis():
     actions = pd.DataFrame([
         ("AAA", "cash_dividend", "2024-02-01", None, 1.00, False),   # before the split: 1.00 / 4
         ("AAA", "forward_split", "2024-06-01", 4.0, None, None),
         ("AAA", "cash_dividend", "2024-08-01", None, 0.25, False),
         ("AAA", "cash_dividend", "2024-09-01", None, 5.00, True),    # special: excluded
-        ("AAA", "cash_dividend", "2023-06-01", None, 9.00, False),   # more than a year ago
+        ("AAA", "cash_dividend", "2023-06-01", None, 9.00, False),   # more than a year before the latest
         ("BBB", "cash_dividend", "2024-08-01", None, 7.00, False),
-    ], columns=["ticker", "action_type", "ex_date", "split_ratio", "cash_amount", "is_special"])
+    ], columns=ACTION_COLUMNS)
     assert trailing_dividends(actions, "AAA", pd.Timestamp("2024-12-31")) == pytest.approx(0.50)
     assert trailing_dividends(actions, "CCC", pd.Timestamp("2024-12-31")) == 0
+
+
+def test_trailing_dividends_count_four_quarterly_payments_despite_date_drift():
+    # Apple's real ex-dates: a 365-day window ending 2026-11-10 would catch only three of these
+    dates = ["2025-08-11", "2025-11-10", "2026-02-09", "2026-05-11", "2026-08-10"]
+    amounts = [0.26, 0.26, 0.26, 0.27, 0.27]
+    actions = pd.DataFrame([("AAA", "cash_dividend", d, None, a, False) for d, a in zip(dates, amounts)],
+                           columns=ACTION_COLUMNS)
+    assert trailing_dividends(actions, "AAA", pd.Timestamp("2026-11-10")) == pytest.approx(1.06)
+    assert trailing_dividends(actions, "AAA", pd.Timestamp("2028-01-01")) == 0   # stopped paying
 
 
 @pytest.fixture(scope="module")

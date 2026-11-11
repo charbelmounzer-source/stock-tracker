@@ -130,6 +130,71 @@ def adjust_for_splits(sub: pd.DataFrame, splits: pd.DataFrame | None, mode: str)
     return sub
 
 
+SHARE_COUNT_TAGS = ("WeightedAverageNumberOfDilutedSharesOutstanding",
+                    "WeightedAverageNumberOfSharesOutstandingBasic")
+SPLIT_RATIOS = (1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 50, 100)
+
+
+def _clean_ratio(ratio: float) -> float | None:
+    """The split ratio a restatement corresponds to (7.0, 0.125...), or None if it is not one."""
+    for clean in SPLIT_RATIOS:
+        if abs(ratio / clean - 1) < 0.02:
+            return float(clean)
+        if abs(ratio * clean - 1) < 0.02:
+            return 1 / clean
+    return None
+
+
+def detect_splits(facts: pd.DataFrame) -> pd.DataFrame:
+    """Find stock splits from the filings themselves.
+
+    After a split, the next filings restate earlier periods' share counts by a clean
+    multiple (x7, x4, x0.125...). The date of the first filing on the new basis is exactly
+    the cut-off needed here: everything filed before it is on the old basis. This covers
+    splits older than the price provider's history. A split counts only if at least two
+    periods were restated by the same ratio."""
+    f = facts[(facts["taxonomy"] == "us-gaap") & facts["tag"].isin(SHARE_COUNT_TAGS)
+              & (facts["unit"] == "shares")
+              & facts["form"].astype(str).str.startswith(("10-K", "10-Q"))].copy()
+    f["filed_date"] = pd.to_datetime(f["filed_date"])
+    f = f.sort_values("filed_date").drop_duplicates(["tag", "start_date", "end_date", "filed_date"], keep="last")
+    seen = defaultdict(list)  # ratio -> filing dates on which a period first appeared restated by it
+    for _, period in f.groupby(["tag", "start_date", "end_date"], dropna=False):
+        values, filed = period["value"].tolist(), period["filed_date"].tolist()
+        for i in range(1, len(values)):
+            if values[i - 1] > 0 and values[i] > 0:
+                ratio = _clean_ratio(values[i] / values[i - 1])
+                if ratio:
+                    seen[ratio].append(filed[i])
+    events = []
+    for ratio, dates in seen.items():
+        cluster = []
+        for day in sorted(dates) + [pd.Timestamp.max]:
+            if cluster and (day - cluster[-1]).days > 300:  # restatements of one split arrive quarterly
+                if len(cluster) >= 2:
+                    events.append((cluster[0], ratio))
+                cluster = []
+            cluster.append(day)
+    found = pd.DataFrame(events, columns=["ex_date", "split_ratio"]).astype({"split_ratio": float})
+    found["ex_date"] = pd.to_datetime(found["ex_date"])
+    return found.sort_values("ex_date").reset_index(drop=True)
+
+
+def combine_splits(detected: pd.DataFrame, provider: pd.DataFrame | None) -> pd.DataFrame:
+    """Splits seen in the filings, plus provider splits the filings do not show yet
+    (a split so recent that no report has restated anything)."""
+    if provider is None or provider.empty:
+        return detected
+    extra = []
+    for ex_date, ratio in zip(pd.to_datetime(provider["ex_date"]), provider["split_ratio"]):
+        same = detected[(detected["split_ratio"] / ratio - 1).abs() < 0.02]
+        days = (same["ex_date"] - ex_date).dt.days
+        if not ((days >= -120) & (days <= 250)).any():
+            extra.append((ex_date, ratio))
+    return pd.concat([detected, pd.DataFrame(extra, columns=["ex_date", "split_ratio"])],
+                     ignore_index=True).sort_values("ex_date").reset_index(drop=True)
+
+
 def _flow_periods(sub: pd.DataFrame, additive: bool) -> dict:
     """{(period_type, end): (value, reported_date, derived)} for one tag."""
     d = sub.dropna(subset=["start_date"])
@@ -170,7 +235,7 @@ def _flow_periods(sub: pd.DataFrame, additive: bool) -> dict:
         if TTM_SPAN_DAYS[0] <= (end - quarters[i - 3][0]).days <= TTM_SPAN_DAYS[1]:
             out[("TTM", end)] = (sum(hit[0] for _, hit in quarters[i - 3:i + 1]), quarters[i][1][1], True)
     for (ptype, end), hit in list(out.items()):
-        if ptype == "FY" and ("TTM", end) not in out:
+        if ptype == "FY":  # at a fiscal year end the trailing year is the reported year
             out[("TTM", end)] = hit
     return out
 
@@ -182,8 +247,12 @@ def _instant_periods(sub: pd.DataFrame) -> dict:
 
 
 def concept_values(by_tag: dict, concept: Concept, splits=None) -> tuple[dict, dict]:
-    """Resolve one concept across its candidate tags. Returns (values, which tag supplied each)."""
-    values, sources = {}, {}
+    """Resolve one concept across its candidate tags. Returns (values, which tag supplied each).
+
+    The value comes from the preferred tag, but the reported date is the earliest filing
+    under any candidate tag: when a company adopts a new tag it re-files old periods under
+    it, and that later filing date must not replace the original one."""
+    values, sources, first_seen = {}, {}, {}
     for tag in concept.tags:
         sub = by_tag.get(tag)
         if sub is None:
@@ -193,8 +262,10 @@ def concept_values(by_tag: dict, concept: Concept, splits=None) -> tuple[dict, d
             sub = adjust_for_splits(sub, splits, concept.split)
         found = _instant_periods(sub) if concept.kind == "instant" else _flow_periods(sub, concept.kind == "flow")
         for key, hit in found.items():
+            first_seen[key] = min(first_seen.get(key, hit[1]), hit[1])
             if key not in values:
                 values[key], sources[key] = hit, tag
+    values = {key: (value, first_seen[key], derived) for key, (value, _, derived) in values.items()}
     return values, sources
 
 
@@ -276,7 +347,9 @@ def add_growth(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_fundamentals(ticker: str, facts: pd.DataFrame, splits: pd.DataFrame | None = None) -> pd.DataFrame:
-    """All periods for one company. `splits` needs columns ex_date, split_ratio."""
+    """All periods for one company. `splits` (columns ex_date, split_ratio) are the price
+    provider's; splits visible in the filings are detected and merged in."""
+    splits = combine_splits(detect_splits(facts), splits)
     latest = latest_facts(facts)
     by_tag = {tag: sub for tag, sub in latest.groupby("tag")}
     values, sources = {}, {}
@@ -293,9 +366,9 @@ def build_fundamentals(ticker: str, facts: pd.DataFrame, splits: pd.DataFrame | 
             hit = values[name].get(key)
             row[name] = hit[0] if hit else np.nan
             if hit:
-                tags[name] = sources[name][key] + ("*" if hit[2] else "")  # * = derived, not reported
-        anchors = [values[a][(ptype, end)] for a in ANCHORS if (ptype, end) in values[a]]
-        row["reported_date"] = anchors[0][1]
+                # * = a quarter obtained by subtraction rather than reported as such
+                tags[name] = sources[name][key] + ("*" if hit[2] and ptype == "Q" else "")
+        row["reported_date"] = min(values[a][(ptype, end)][1] for a in ANCHORS if (ptype, end) in values[a])
         row["tag_sources"] = json.dumps(tags)
         rows.append(row)
 
@@ -307,12 +380,22 @@ def build_fundamentals(ticker: str, facts: pd.DataFrame, splits: pd.DataFrame | 
 
 
 def latest_share_count(fundamentals: pd.DataFrame):
-    """(shares, as_of_date) used for market cap: the most recent diluted weighted-average
-    share count. It covers every share class and matches the EPS denominator, unlike the
-    cover-page count, which EDGAR's API omits for multi-class companies."""
+    """(shares, as_of_date) used for market cap.
+
+    Preferred: shares outstanding at the latest balance-sheet date. EDGAR's API omits that
+    figure, or gives only one class, for multi-class companies, so it is used only when it
+    agrees (within -15% / +5%) with the weighted-average count, which always covers every
+    class. Otherwise the weighted-average count itself is used."""
     reported = fundamentals[fundamentals["period_type"].isin(["Q", "FY"])].sort_values("period_end")
-    for column in ("shares_diluted", "shares_basic", "shares_outstanding"):
+    weighted = None
+    for column in ("shares_diluted", "shares_basic"):
         known = reported.dropna(subset=[column])
         if not known.empty:
-            return float(known[column].iloc[-1]), known["period_end"].iloc[-1]
-    return None, None
+            weighted = (float(known[column].iloc[-1]), known["period_end"].iloc[-1])
+            break
+    point = reported.dropna(subset=["shares_outstanding"])
+    if not point.empty:
+        shares, as_of = float(point["shares_outstanding"].iloc[-1]), point["period_end"].iloc[-1]
+        if weighted is None or (as_of >= weighted[1] and 0.85 <= shares / weighted[0] <= 1.05):
+            return shares, as_of
+    return weighted or (None, None)

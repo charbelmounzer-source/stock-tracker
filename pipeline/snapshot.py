@@ -83,12 +83,20 @@ def price_stats(prices: pd.DataFrame, benchmark: str = config.BENCHMARK) -> pd.D
 
 
 def trailing_dividends(actions: pd.DataFrame, ticker: str, as_of) -> float:
-    """Regular cash dividends per share over the last 12 months, on today's share basis."""
+    """Regular cash dividends per share over one year of payments, on today's share basis.
+
+    The year is the 350 days up to the latest dividend, not up to today: payment dates
+    drift by a few days each year, so a strict 365-day window ending today regularly
+    catches three or five quarterly payments instead of four. A company whose last
+    dividend is more than 400 days old is treated as no longer paying."""
     mine = actions[actions["ticker"] == ticker].copy()
     mine["ex_date"] = pd.to_datetime(mine["ex_date"])
     splits = mine[mine["action_type"].str.endswith("split")]
     paid = mine[(mine["action_type"] == "cash_dividend") & (mine["is_special"] != True)  # noqa: E712
-                & (mine["ex_date"] > as_of - pd.DateOffset(years=1)) & (mine["ex_date"] <= as_of)]
+                & (mine["ex_date"] <= as_of)]
+    if paid.empty or paid["ex_date"].max() < as_of - pd.Timedelta(days=400):
+        return 0.0
+    paid = paid[paid["ex_date"] > paid["ex_date"].max() - pd.Timedelta(days=350)]
     total = 0.0
     for ex_date, amount in zip(paid["ex_date"], paid["cash_amount"]):
         later_splits = splits.loc[splits["ex_date"] > ex_date, "split_ratio"].prod()

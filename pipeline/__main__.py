@@ -13,7 +13,7 @@ import pandas as pd
 
 from . import alpaca, config, edgar, fred
 from .bq import BigQuerySink, LocalSink
-from .fundamentals import build_fundamentals
+from .fundamentals import build_fundamentals, detect_splits
 from .snapshot import build_snapshot
 
 
@@ -132,6 +132,10 @@ def fundamentals(run: Run):
         if all_actions is not None:
             splits = all_actions[(all_actions["ticker"] == ticker) & all_actions["split_ratio"].notna()]
         frames.append(build_fundamentals(ticker, company_facts, splits))
+        found = detect_splits(company_facts)
+        if len(found):
+            print(f"  {ticker}: splits seen in filings: "
+                  + ", ".join(f"{d:%Y-%m-%d} x{r:g}" for d, r in zip(found["ex_date"], found["split_ratio"])))
     run.save("fundamentals", pd.concat(frames, ignore_index=True))
 
 
