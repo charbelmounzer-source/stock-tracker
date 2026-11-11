@@ -1,7 +1,8 @@
+"""Internal viewer for the data foundation. Not the product UI: its job is to make
+the data easy to inspect and to show where it is incomplete."""
 import streamlit as st
 
-home_page = st.Page("pages/1_Home.py", title="Home", icon="🏠")
-sanity_page = st.Page("pages/2_Sanity_Checks.py", title="Sanity Checks", icon="🔍")
-
-pg = st.navigation([home_page, sanity_page])
-pg.run()
+st.navigation([
+    st.Page("pages/1_Explorer.py", title="Stock explorer", icon="📈"),
+    st.Page("pages/2_Data_Quality.py", title="Data quality", icon="🔍"),
+]).run()

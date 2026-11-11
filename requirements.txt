@@ -1,9 +1,8 @@
 streamlit
 pandas
-altair
-alpaca-py
-python-dotenv
 requests
+python-dotenv
 google-cloud-bigquery
 db-dtypes
-google-genai
+tzdata
+pytest
