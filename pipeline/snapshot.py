@@ -83,12 +83,20 @@ def price_stats(prices: pd.DataFrame, benchmark: str = config.BENCHMARK) -> pd.D
 
 
 def trailing_dividends(actions: pd.DataFrame, ticker: str, as_of) -> float:
-    """Regular cash dividends per share over the last 12 months, on today's share basis."""
+    """Regular cash dividends per share over one year of payments, on today's share basis.
+
+    The year is the 350 days up to the latest dividend, not up to today: payment dates
+    drift by a few days each year, so a strict 365-day window ending today regularly
+    catches three or five quarterly payments instead of four. A company whose last
+    dividend is more than 400 days old is treated as no longer paying."""
     mine = actions[actions["ticker"] == ticker].copy()
     mine["ex_date"] = pd.to_datetime(mine["ex_date"])
     splits = mine[mine["action_type"].str.endswith("split")]
     paid = mine[(mine["action_type"] == "cash_dividend") & (mine["is_special"] != True)  # noqa: E712
-                & (mine["ex_date"] > as_of - pd.DateOffset(years=1)) & (mine["ex_date"] <= as_of)]
+                & (mine["ex_date"] <= as_of)]
+    if paid.empty or paid["ex_date"].max() < as_of - pd.Timedelta(days=400):
+        return 0.0
+    paid = paid[paid["ex_date"] > paid["ex_date"].max() - pd.Timedelta(days=350)]
     total = 0.0
     for ex_date, amount in zip(paid["ex_date"], paid["cash_amount"]):
         later_splits = splits.loc[splits["ex_date"] > ex_date, "split_ratio"].prod()
@@ -113,36 +121,42 @@ def build_snapshot(companies: pd.DataFrame, prices: pd.DataFrame | None = None,
         close = row.get("close")
         multiplier = config.SHARE_CLASS_MULTIPLIER.get(ticker, 1)
 
+        if actions is not None and len(actions) and pd.notna(row.get("price_date")):
+            row["dividends_per_share_ttm"] = trailing_dividends(actions, ticker, row["price_date"])
+
         mine = fundamentals[fundamentals["ticker"] == ticker] if fundamentals is not None else None
         if mine is not None and len(mine):
             ttm = mine[mine["period_type"] == "TTM"].sort_values("period_end")
             quarters = mine[mine["period_type"] == "Q"].sort_values("period_end")
-            shares, shares_as_of = latest_share_count(mine)
-            row["shares"] = shares * multiplier if shares else np.nan
-            row["shares_as_of"] = shares_as_of
+            shares, shares_as_of, basis = latest_share_count(mine)
             if len(quarters):
                 row["revenue_yoy_quarter"] = quarters["revenue_yoy"].iloc[-1]
             if len(ttm):
                 t = ttm.iloc[-1]
+                if shares is None and row.get("dividends_per_share_ttm", 0) > 0 and t["dividends_paid"] > 0:
+                    # Last resort for multi-class companies (Visa): the dividend bill divided by
+                    # the dividend per share is the share count, on an as-converted basis.
+                    shares = t["dividends_paid"] / row["dividends_per_share_ttm"] / multiplier
+                    shares_as_of, basis = t["period_end"], "implied from dividends"
                 # Diluted EPS as reported; else basic; else profit / shares (multi-class companies
                 # often report EPS per share class, which EDGAR's API leaves out).
                 eps = next((v for v in (t["eps_diluted"], t["eps_basic"], _div(t["net_income"], shares))
                             if pd.notna(v)), np.nan)
+                reported_dps = t["dividends_per_share"] / multiplier
                 row.update({
                     "fundamentals_period_end": t["period_end"], "fiscal_year": t["fiscal_year"],
                     "fiscal_quarter": t["fiscal_quarter"], "reported_date": t["reported_date"],
                     "revenue_ttm": t["revenue"], "net_income_ttm": t["net_income"],
                     "eps_diluted_ttm": eps / multiplier,
                     "free_cash_flow_ttm": t["free_cash_flow"], "ebitda_ttm": t["ebitda"],
-                    "dividends_per_share_ttm": t["dividends_per_share"] / multiplier,
+                    "dividends_per_share_ttm": row.get("dividends_per_share_ttm", reported_dps),
                     **{k: t[k] for k in ("gross_margin", "operating_margin", "net_margin", "fcf_margin",
                                          "roe", "roa", "revenue_yoy", "net_income_yoy", "eps_diluted_yoy",
                                          "cash", "total_debt", "net_debt", "equity", "debt_to_equity",
                                          "current_ratio")},
                 })
-
-        if actions is not None and len(actions) and pd.notna(row.get("price_date")):
-            row["dividends_per_share_ttm"] = trailing_dividends(actions, ticker, row["price_date"])
+            row["shares"] = shares * multiplier if shares else np.nan
+            row["shares_as_of"], row["shares_basis"] = shares_as_of, basis
 
         if pd.notna(close):
             market_cap = close * row["shares"] if pd.notna(row.get("shares")) else np.nan

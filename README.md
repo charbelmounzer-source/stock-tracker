@@ -5,10 +5,10 @@ company events, insider trades, news and macro context a "stock card" needs. Eve
 comes from **free** sources. The product UI is not built yet; the Streamlit app in this repo
 is an internal viewer for checking the data.
 
-> **Status: the code has never run against the live APIs.** It was written and tested (57
-> tests) against synthetic data shaped like the real payloads, because the build environment
-> had no credentials and no access to the SEC or Alpaca. Expect the first real run to surface
-> things to fix. [First real run](#first-real-run) lists what to check.
+> **Status: usable for 45 of 49 stocks, with four known gaps.** Two full runs on 11 Nov 2026.
+> Apple and JPMorgan were checked against published figures; the others were checked for
+> plausibility only, not against a second source. NEE, DUK and PLD show results that stop in
+> March 2026, and BRK.B has no market cap. [Known problems](#known-problems) has the detail.
 
 ## How it works
 
@@ -44,7 +44,7 @@ to BigQuery as column descriptions and shown as tooltips in the viewer.
 ```bash
 pip install -r requirements.txt
 cp .env.example .env        # then fill it in
-python -m pytest -q         # 57 tests, no network or credentials needed
+python -m pytest -q         # 73 tests, no network or credentials needed
 ```
 
 Keys needed (all free): an [Alpaca](https://alpaca.markets/) account (paper keys are enough), a
@@ -75,18 +75,38 @@ Other options: `--only prices,macro` runs selected steps (`companies`, `actions`
 the summary, leaves its table as it was, and makes the command exit with code 1; the other
 steps still run.
 
-What to check on the first run, because it could not be tested here:
+What to check when running all 49 stocks:
 
-- **Alpaca corporate actions from 2009.** The request asks for splits back to 2009. If Alpaca
-  rejects or truncates that range, old per-share history will not be split-adjusted (the
-  viewer's "EPS up more than 5x" check will show it).
-- **Alpaca news on the free plan.** Believed to be included; if the step fails with 403 it is
-  not, and the rest still works.
-- **Form 4 parsing.** Written from the form's published structure, not checked against live
-  filings.
-- **AAPL sanity check.** Compare revenue, net income, EPS and market cap in the viewer with
-  any finance site. Then open the Data quality page and go through every warning.
+- **The run log.** The `fundamentals` step prints the splits it found in each company's
+  filings. Compare a few with the company's real split history.
+- **The Data quality page.** Go through every warning, in particular "Implausible snapshot
+  values" and "Annual EPS up more than 5x or down more than 80%".
 - **Multi-class and unusual companies** (GOOGL, META, V, BRK.B): see the caveats below.
+- **A few stocks by hand.** Compare revenue, EPS, market cap and P/E with any finance site.
+- **Form 4 parsing.** It runs, but individual trades have not been compared with the filings.
+
+On Windows, use `py -m pipeline ...` and `py -m streamlit run app.py`.
+
+## Known problems
+
+From the first 49-stock run. "Fixed" means fixed in code and unit-tested, not yet re-run on real data.
+
+| Stock | Problem | State |
+|---|---|---|
+| NEE, DUK, PLD | Results stop at March 2026 | Open. Their later 10-Qs exist, but EDGAR's facts API returns nothing from them under the company's CIK. All three file jointly with subsidiaries, so the facts may sit under a subsidiary's CIK: check with `python -m pipeline.diagnose probe <CIK>`, then add it to `PREDECESSOR_CIKS` |
+| BRK.B | No usable share count since 2015 | Market cap and P/E left empty. A real fix needs the cover-page count from the filing itself |
+| V | No share count or EPS in EDGAR's API (multi-class) | Approximated: shares = dividends paid / dividend per share (`shares_basis` says so). Gave a market cap of $807B |
+| MCD | Share count filed in millions | Fixed and confirmed on real data |
+| XOM | New SEC registrant since July 2026 | Fixed and confirmed: the previous registrant's history is merged |
+| HON | Price showed the 2026 spin-off as a 42% loss | Fixed and confirmed: prices adjust for spin-offs |
+| ORCL, CAT, COP, NKE, GE, VZ, T | Some of debt, EBITDA, operating margin or free cash flow empty | Tags added after the second run; not yet re-run. COP, NEE and PLD use company-specific capex tags that the API does not expose |
+| 13 stocks | Gross margin empty | Expected: these companies do not report a cost of revenue (telecoms, utilities, restaurants, Visa, Exxon...) |
+
+To see what a company filed for each empty metric, and so which tags to add:
+
+```bash
+python -m pipeline.diagnose out      # writes out/diagnosis.txt
+```
 
 ## Scheduled refresh
 
@@ -142,17 +162,29 @@ Reported financial data has five traps. Each is handled explicitly and covered b
    figures with the same start date (full year minus nine months gives Q4).
 4. **EDGAR's `fy`/`fp` fields describe the filing, not the number.** A 10-K repeats prior
    years under the new filing's label. Periods are identified by their dates only.
-5. **Stock splits.** Share counts and per-share amounts filed before a split are rescaled
-   using the split calendar; later filings already restate them.
+5. **Stock splits.** Share counts and per-share amounts filed before a split are rescaled;
+   later filings already restate them. Splits are found in the filings themselves: after a
+   split, companies restate earlier share counts by a clean multiple, and the first filing
+   on the new basis gives the cut-off date. This matters because Alpaca's split history only
+   starts in 2016 (Apple's 2014 seven-for-one split is not in it). Alpaca's splits are added
+   only for a split so recent that no report has restated anything yet.
 
-Trailing-12-month (TTM) values are the sum of the last four quarters. Market cap uses the
-latest diluted weighted-average share count: it covers every share class and matches the EPS
-denominator, at the cost of being an average over a quarter rather than today's exact count.
+Trailing-12-month (TTM) values are the sum of the last four quarters, except at a fiscal
+year end, where they are the reported annual figures. Market cap uses shares outstanding at
+the latest balance-sheet date when that figure agrees with the weighted-average share count,
+and the weighted-average count otherwise (EDGAR's API omits or truncates the balance-sheet
+figure for multi-class companies). `reported_date` is the first filing of a period under any
+candidate tag, so it survives a company re-filing old years under a new tag.
 
 ## Caveats
 
 **Data**
 
+- **Split detection is a heuristic.** It needs at least two periods restated by the same
+  clean ratio. A missed split shows up as a jump in the EPS check on the Data quality page.
+- **Dividend yield is trailing**: regular dividends over the 350 days up to the latest payment.
+  Finance sites often show the forward figure (latest payment x 4), which is slightly higher
+  for a company that just raised its dividend. Alpaca's dividend history also starts in 2016.
 - **Prices start in 2016** (Alpaca's limit) and are end-of-day. `close` is split-adjusted;
   `close_total_return` also includes dividends.
 - **Structured data only from 2009 onwards**, when XBRL reporting began.
@@ -160,9 +192,13 @@ denominator, at the cost of being an average over a quarter rather than today's 
   per share class. If a company reports EPS or share counts only that way, EPS falls back to
   net income / shares, and if shares are missing too, market cap and every valuation ratio are
   empty. The Data quality page lists these.
-- **BRK.B** is handled with a hard-coded 1,500 multiplier (`SHARE_CLASS_MULTIPLIER`), because
-  Berkshire reports in Class A equivalents. The `fundamentals` table keeps the as-reported
-  figures; only `stock_snapshot` applies the multiplier.
+- **BRK.B** has no market cap or P/E: Berkshire has not reported a usable share count through
+  EDGAR's API since 2015. The 1,500 multiplier (`SHARE_CLASS_MULTIPLIER`, Class A to Class B)
+  is kept for when a count is available.
+- **Prices are adjusted for spin-offs as well as splits**, so past prices of GE or Honeywell
+  are lower than what traded at the time.
+- **Fallbacks are approximations**: operating income as pre-tax income plus interest, equity
+  including minorities, share count implied from dividends.
 - **Banks, brokers and insurers** (SIC 6000-6499) have gross margin, EBITDA, debt, enterprise
   value and cash-flow metrics left empty in `stock_snapshot`: they do not mean the same thing
   there. Visa is not in that range and is treated as a normal company.
@@ -233,6 +269,7 @@ pipeline/
   fundamentals.py       raw facts -> quarters / years / TTM
   snapshot.py           price statistics and the one-row-per-stock table
   bq.py                 BigQuery and local-CSV writers
+  diagnose.py           explains gaps in a local run
 app.py, app_data.py, pages/   the internal viewer
 tests/                  synthetic-data tests, including a full end-to-end run
 ```

@@ -13,7 +13,7 @@ import pandas as pd
 
 from . import alpaca, config, edgar, fred
 from .bq import BigQuerySink, LocalSink
-from .fundamentals import build_fundamentals
+from .fundamentals import build_fundamentals, detect_splits
 from .snapshot import build_snapshot
 
 
@@ -69,9 +69,10 @@ def facts(run: Run):
     """Every XBRL fact each company has ever reported."""
     fact_frames, tag_frames = [], []
     for ticker in run.universe:
-        f, t = edgar.flatten_facts(ticker, edgar.fetch_company_facts(run.edgar, run.cik(ticker)))
-        fact_frames.append(f)
-        tag_frames.append(t)
+        for cik in [run.cik(ticker)] + config.PREDECESSOR_CIKS.get(ticker, []):
+            f, t = edgar.flatten_facts(ticker, edgar.fetch_company_facts(run.edgar, cik))
+            fact_frames.append(f)
+            tag_frames.append(t)
     run.save("xbrl_facts", pd.concat(fact_frames, ignore_index=True))
     run.save("xbrl_tags", pd.concat(tag_frames, ignore_index=True).drop_duplicates(["taxonomy", "tag"]))
 
@@ -132,6 +133,10 @@ def fundamentals(run: Run):
         if all_actions is not None:
             splits = all_actions[(all_actions["ticker"] == ticker) & all_actions["split_ratio"].notna()]
         frames.append(build_fundamentals(ticker, company_facts, splits))
+        found = detect_splits(company_facts)
+        if len(found):
+            print(f"  {ticker}: splits seen in filings: "
+                  + ", ".join(f"{d:%Y-%m-%d} x{r:g}" for d, r in zip(found["ex_date"], found["split_ratio"])))
     run.save("fundamentals", pd.concat(frames, ignore_index=True))
 
 

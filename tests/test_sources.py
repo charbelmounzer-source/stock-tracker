@@ -97,7 +97,7 @@ def test_fetch_prices_paginates_merges_and_drops_today():
     assert sorted(prices["price_date"].unique()) == ["2024-06-27", "2024-06-28"]  # 07-01 is "today"
     assert (prices["close_total_return"] / prices["close"]).round(6).eq(0.9).all()
     first = client.calls[0][1]
-    assert first["feed"] == "sip" and first["adjustment"] == "split" and first["symbols"] == "AAA,BBB"
+    assert first["feed"] == "sip" and first["adjustment"] == "split,spin-off" and first["symbols"] == "AAA,BBB"
     assert first["end"] == "2024-07-01T20:40:00Z"  # 20 minutes back: the free plan's SIP limit
     assert len(client.calls) == 4
 

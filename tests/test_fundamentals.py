@@ -3,7 +3,7 @@ import json
 import pandas as pd
 import pytest
 
-from pipeline.fundamentals import COLUMNS, build_fundamentals, latest_share_count
+from pipeline.fundamentals import COLUMNS, build_fundamentals, combine_splits, detect_splits, latest_share_count
 from tests.fakes import facts_frame, flow, instant, standard_company
 
 
@@ -33,6 +33,7 @@ def test_q4_is_full_year_minus_nine_months(company):
     q4 = row(company, "Q", "2023-12-31")
     assert q4["revenue"] == pytest.approx(143.0)
     assert json.loads(q4["tag_sources"])["revenue"] == "Revenues*"  # * = derived
+    assert json.loads(row(company, "TTM", "2023-12-31")["tag_sources"])["revenue"] == "Revenues"
 
 
 def test_cash_flow_reported_year_to_date_is_split_into_quarters(company):
@@ -171,10 +172,131 @@ def test_only_annual_and_quarterly_reports_are_used():
 
 
 def test_latest_share_count(company):
-    shares, as_of = latest_share_count(company)
-    assert shares == 1000 and as_of == pd.Timestamp("2024-12-31")
+    assert latest_share_count(company) == (1000, pd.Timestamp("2024-12-31"), "weighted average")
+
+
+def test_share_count_prefers_the_balance_sheet_figure_when_it_is_plausible(company):
+    with_point = company.assign(shares_outstanding=980.0)       # slightly below the average: buybacks
+    assert latest_share_count(with_point) == (980.0, pd.Timestamp("2024-12-31"), "balance sheet")
+    one_class_only = company.assign(shares_outstanding=300.0)   # a single share class: not the whole company
+    assert latest_share_count(one_class_only)[0] == 1000
+
+
+def split_history():
+    """A 7-for-1 split in June 2014: reports from July 2014 on restate earlier share counts."""
+    tag, eps = "WeightedAverageNumberOfDilutedSharesOutstanding", "EarningsPerShareDiluted"
+    rows = flow("Revenues", 2012, [100] * 4) + flow("Revenues", 2013, [100] * 4) + flow("Revenues", 2014, [100] * 4)
+    for year, filed in ((2012, "2013-02-10"), (2013, "2014-02-10")):       # original, old basis
+        rows.append((tag, "shares", f"{year}-01-01", f"{year}-12-31", 1000, "10-K", filed))
+        rows.append((eps, "USD/shares", f"{year}-01-01", f"{year}-12-31", 7.0, "10-K", filed))
+    rows.append((tag, "shares", "2013-04-01", "2013-06-30", 1000, "10-Q", "2013-08-05"))
+    rows.append((tag, "shares", "2014-04-01", "2014-06-30", 6900, "10-Q", "2014-07-23"))   # first on new basis
+    rows.append((tag, "shares", "2013-04-01", "2013-06-30", 7000, "10-Q", "2014-07-23"))   # restated comparative
+    rows.append((tag, "shares", "2013-01-01", "2013-12-31", 7000, "10-K", "2015-02-10"))   # restated comparative
+    rows.append((eps, "USD/shares", "2013-01-01", "2013-12-31", 1.0, "10-K", "2015-02-10"))
+    rows.append((tag, "shares", "2014-01-01", "2014-12-31", 6800, "10-K", "2015-02-10"))
+    rows.append((eps, "USD/shares", "2014-01-01", "2014-12-31", 1.1, "10-K", "2015-02-10"))
+    return rows
+
+
+def test_split_is_detected_from_restated_share_counts():
+    found = detect_splits(facts_frame(split_history()))
+    assert found.values.tolist() == [[pd.Timestamp("2014-07-23"), 7.0]]
+
+
+def test_detected_split_rescales_periods_never_restated():
+    df = build_fundamentals("TEST", facts_frame(split_history()))
+    never_restated = row(df, "FY", "2012-12-31")                 # only ever filed on the old basis
+    assert never_restated["eps_diluted"] == pytest.approx(1.0)
+    assert never_restated["shares_diluted"] == 7000
+    assert row(df, "FY", "2013-12-31")["eps_diluted"] == pytest.approx(1.0)   # restated by the company
+    assert row(df, "FY", "2014-12-31")["shares_diluted"] == 6800              # filed after the split
+
+
+def test_buybacks_and_single_odd_restatements_are_not_splits():
+    tag = "WeightedAverageNumberOfDilutedSharesOutstanding"
+    rows = [(tag, "shares", "2013-01-01", "2013-12-31", 1000, "10-K", "2014-02-10"),
+            (tag, "shares", "2013-01-01", "2013-12-31", 985, "10-K", "2015-02-10"),    # small correction
+            (tag, "shares", "2012-01-01", "2012-12-31", 1000, "10-K", "2013-02-10"),
+            (tag, "shares", "2012-01-01", "2012-12-31", 2000, "10-K", "2014-02-10")]   # only one period doubled
+    assert detect_splits(facts_frame(rows)).empty
+
+
+def test_provider_split_is_not_applied_twice():
+    detected = pd.DataFrame({"ex_date": pd.to_datetime(["2020-10-30"]), "split_ratio": [4.0]})
+    provider = pd.DataFrame({"ex_date": ["2020-08-31", "2026-10-01"], "split_ratio": [4.0, 2.0]})
+    combined = combine_splits(detected, provider)
+    assert combined.values.tolist() == [[pd.Timestamp("2020-10-30"), 4.0], [pd.Timestamp("2026-10-01"), 2.0]]
+
+
+def test_reported_date_survives_a_later_change_of_tag():
+    rows = flow("SalesRevenueNet", 2016, [100] * 4)   # filed under the old tag at the time...
+    rows.append(("Revenues", "USD", "2016-01-01", "2016-12-31", 400, "10-K", "2019-02-10"))  # ...re-filed later
+    fy = row(build_fundamentals("TEST", facts_frame(rows)), "FY", "2016-12-31")
+    assert fy["reported_date"] == pd.Timestamp("2017-02-10")
+    assert json.loads(fy["tag_sources"])["revenue"] == "Revenues"
+
+
+def test_ttm_at_year_end_is_the_reported_year_not_a_sum_of_rounded_quarters():
+    eps = [("EarningsPerShareDiluted", "USD/shares", s, e, v, form, filed) for s, e, v, form, filed in [
+        ("2023-01-01", "2023-03-31", 1.11, "10-Q", "2023-05-05"), ("2023-04-01", "2023-06-30", 1.11, "10-Q", "2023-08-05"),
+        ("2023-01-01", "2023-06-30", 2.23, "10-Q", "2023-08-05"), ("2023-07-01", "2023-09-30", 1.11, "10-Q", "2023-11-05"),
+        ("2023-01-01", "2023-09-30", 3.35, "10-Q", "2023-11-05"), ("2023-01-01", "2023-12-31", 4.47, "10-K", "2024-02-10")]]
+    df = build_fundamentals("TEST", facts_frame(flow("Revenues", 2023, [100] * 4) + eps))
+    assert row(df, "TTM", "2023-12-31")["eps_diluted"] == 4.47   # 1.11 * 3 + 1.12 would give 4.45
 
 
 def test_company_without_usable_facts_gives_empty_frame():
     df = build_fundamentals("TEST", facts_frame([("Assets", "USD", None, "2023-12-31", 5, "10-K", "2024-02-10")]))
     assert df.empty and list(df.columns) == COLUMNS
+
+
+def test_stale_share_count_is_ignored(company):
+    old_only = company.copy()
+    old_only.loc[old_only["period_end"] > "2023-12-31", ["shares_diluted", "shares_basic"]] = float("nan")
+    assert latest_share_count(old_only) == (None, None, None)   # Berkshire: last usable count was 2015
+
+
+def test_share_counts_filed_in_millions_are_rescaled():
+    rows = standard_company(years=(2023,))
+    rows = [(tag, unit, s, e, v / 1e6 if unit == "shares" else v, form, filed)
+            for tag, unit, s, e, v, form, filed in rows]          # 1,000 shares filed as "0.001 million"
+    fy = row(build_fundamentals("TEST", facts_frame(rows)), "FY", "2023-12-31")
+    assert fy["shares_diluted"] == pytest.approx(1000)
+
+
+def test_fallbacks_for_items_not_reported_on_their_own_line():
+    rows = (flow("Revenues", 2023, [100] * 4) + flow("NetIncomeLoss", 2023, [10] * 4)
+            + flow("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+                   2023, [14] * 4)
+            + flow("InterestExpense", 2023, [1] * 4)
+            + flow("Depreciation", 2023, [3] * 4, direct_quarters=False)
+            + flow("AmortizationOfIntangibleAssets", 2023, [2] * 4, direct_quarters=False)
+            + instant("StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest", 2023, [500] * 4))
+    fy = row(build_fundamentals("TEST", facts_frame(rows)), "FY", "2023-12-31")
+    assert fy["operating_income"] == 60          # pre-tax 56 + interest 4
+    assert fy["depreciation_amortization"] == 20
+    assert fy["ebitda"] == 80
+    assert fy["equity"] == 500
+
+
+def test_spin_off_price_factors_are_not_treated_as_share_splits():
+    detected = pd.DataFrame({"ex_date": pd.to_datetime([]), "split_ratio": []})
+    provider = pd.DataFrame({"ex_date": ["2018-10-01", "2026-06-29"], "split_ratio": [1.011, 0.5]})
+    assert combine_splits(detected, provider)["split_ratio"].tolist() == [0.5]
+
+
+def test_utility_revenue_tag_beats_a_stray_revenues_figure():
+    rows = (flow("RegulatedAndUnregulatedOperatingRevenue", 2023, [110] * 4)
+            + [("Revenues", "USD", "2023-01-01", "2023-12-31", 400, "10-K", "2024-02-10")])
+    assert row(build_fundamentals("TEST", facts_frame(rows)), "FY", "2023-12-31")["revenue"] == 440
+
+
+def test_operating_income_from_a_net_interest_line_and_all_in_debt():
+    rows = (flow("Revenues", 2023, [100] * 4)
+            + flow("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+                   2023, [14] * 4)
+            + flow("InterestIncomeExpenseNet", 2023, [-1] * 4)          # net cost of 1 a quarter
+            + instant("DebtLongtermAndShorttermCombinedAmount", 2023, [300] * 4))
+    fy = row(build_fundamentals("TEST", facts_frame(rows)), "FY", "2023-12-31")
+    assert fy["operating_income"] == 60 and fy["total_debt"] == 300
