@@ -69,9 +69,10 @@ def facts(run: Run):
     """Every XBRL fact each company has ever reported."""
     fact_frames, tag_frames = [], []
     for ticker in run.universe:
-        f, t = edgar.flatten_facts(ticker, edgar.fetch_company_facts(run.edgar, run.cik(ticker)))
-        fact_frames.append(f)
-        tag_frames.append(t)
+        for cik in [run.cik(ticker)] + config.PREDECESSOR_CIKS.get(ticker, []):
+            f, t = edgar.flatten_facts(ticker, edgar.fetch_company_facts(run.edgar, cik))
+            fact_frames.append(f)
+            tag_frames.append(t)
     run.save("xbrl_facts", pd.concat(fact_frames, ignore_index=True))
     run.save("xbrl_tags", pd.concat(tag_frames, ignore_index=True).drop_duplicates(["taxonomy", "tag"]))
 

@@ -23,6 +23,10 @@ BENCHMARK = "SPY"                # priced like a stock, used for beta / relative
 # Berkshire reports shares and EPS in Class A equivalents; 1 Class A = 1,500 Class B.
 SHARE_CLASS_MULTIPLIER = {"BRK.B": 1500}
 
+# Earlier SEC registrants of the same company, whose filing history must be merged in.
+# Exxon moved to a new holding company (new CIK) on 1 July 2026.
+PREDECESSOR_CIKS = {"XOM": ["0000034088"]}
+
 # SIC 6000-6499 = banks, brokers, insurers. Debt, EBITDA and cash-flow metrics do not
 # mean the same thing for them, so the snapshot leaves those metrics empty.
 FINANCIAL_SIC_RANGE = (6000, 6499)

@@ -71,7 +71,10 @@ CONCEPTS = {
                               "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
     "capex": _c("flow", "PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"),
     "depreciation_amortization": _c("flow", "DepreciationDepletionAndAmortization",
-                                    "DepreciationAmortizationAndAccretionNet", "DepreciationAndAmortization"),
+                                    "DepreciationAmortizationAndAccretionNet", "DepreciationAndAmortization",
+                                    "DepreciationAmortizationAndOther"),
+    "depreciation": _c("flow", "Depreciation"),
+    "amortization_of_intangibles": _c("flow", "AmortizationOfIntangibleAssets"),
     "stock_compensation": _c("flow", "ShareBasedCompensation"),
     "dividends_paid": _c("flow", "PaymentsOfDividendsCommonStock", "PaymentsOfDividends"),
     "buybacks": _c("flow", "PaymentsForRepurchaseOfCommonStock"),
@@ -187,6 +190,8 @@ def combine_splits(detected: pd.DataFrame, provider: pd.DataFrame | None) -> pd.
         return detected
     extra = []
     for ex_date, ratio in zip(pd.to_datetime(provider["ex_date"]), provider["split_ratio"]):
+        if _clean_ratio(ratio) is None:  # e.g. 1.011: a spin-off price adjustment, not a share split
+            continue
         same = detected[(detected["split_ratio"] / ratio - 1).abs() < 0.02]
         days = (same["ex_date"] - ex_date).dt.days
         if not ((days >= -120) & (days <= 250)).any():
@@ -302,9 +307,24 @@ def _ratio(numerator, denominator, only_if=None):
 
 def add_metrics(df: pd.DataFrame) -> pd.DataFrame:
     d = df
+    # Some companies (McDonald's) file share counts in thousands or millions. Profit / EPS
+    # gives the true order of magnitude, so rescale when a count is off by exactly that much.
+    implied = (d["net_income"] / d["eps_diluted"].where(d["eps_diluted"] != 0)).abs()
+    for column in ("shares_basic", "shares_diluted", "shares_outstanding"):
+        for scale in (1e3, 1e6):
+            off = (d[column] * scale / implied).between(0.5, 2)
+            d[column] = d[column].where(~off, d[column] * scale)
+
+    # Fallbacks for items some companies do not report as a line of their own.
     d["gross_profit"] = d["gross_profit"].fillna(d["revenue"] - d["cost_of_revenue"])
+    d["equity"] = d["equity"].fillna(d["equity_incl_minorities"])
+    d["equity"] = d["equity"].fillna(d["total_assets"] - d["total_liabilities"])
     d["total_liabilities"] = d["total_liabilities"].fillna(
         d["liabilities_and_equity"] - d["equity_incl_minorities"].fillna(d["equity"]))
+    d["operating_income"] = d["operating_income"].fillna(d["pretax_income"] + d["interest_expense"])
+    separate = d[["depreciation", "amortization_of_intangibles"]]
+    d["depreciation_amortization"] = d["depreciation_amortization"].fillna(
+        separate.sum(axis=1).where(separate.notna().any(axis=1)))
     d["free_cash_flow"] = d["operating_cash_flow"] - d["capex"]
     d["ebitda"] = d["operating_income"] + d["depreciation_amortization"]
 
@@ -381,23 +401,31 @@ def build_fundamentals(ticker: str, facts: pd.DataFrame, splits: pd.DataFrame | 
     return df[COLUMNS].sort_values(["period_end", "period_type"]).reset_index(drop=True)
 
 
+STALE_SHARES_DAYS = 200
+
+
 def latest_share_count(fundamentals: pd.DataFrame):
-    """(shares, as_of_date) used for market cap.
+    """(shares, as_of_date, basis) used for market cap. (None, None, None) if nothing usable.
 
     Preferred: shares outstanding at the latest balance-sheet date. EDGAR's API omits that
     figure, or gives only one class, for multi-class companies, so it is used only when it
     agrees (within -15% / +5%) with the weighted-average count, which always covers every
-    class. Otherwise the weighted-average count itself is used."""
+    class. Otherwise the weighted-average count itself is used. A count more than 200 days
+    older than the latest results is ignored: a stale count gives a confidently wrong
+    market cap, which is worse than none."""
     reported = fundamentals[fundamentals["period_type"].isin(["Q", "FY"])].sort_values("period_end")
+    if reported.empty:
+        return None, None, None
+    fresh = reported[reported["period_end"] >= reported["period_end"].max() - pd.Timedelta(days=STALE_SHARES_DAYS)]
     weighted = None
     for column in ("shares_diluted", "shares_basic"):
-        known = reported.dropna(subset=[column])
+        known = fresh.dropna(subset=[column])
         if not known.empty:
-            weighted = (float(known[column].iloc[-1]), known["period_end"].iloc[-1])
+            weighted = (float(known[column].iloc[-1]), known["period_end"].iloc[-1], "weighted average")
             break
-    point = reported.dropna(subset=["shares_outstanding"])
+    point = fresh.dropna(subset=["shares_outstanding"])
     if not point.empty:
         shares, as_of = float(point["shares_outstanding"].iloc[-1]), point["period_end"].iloc[-1]
         if weighted is None or (as_of >= weighted[1] and 0.85 <= shares / weighted[0] <= 1.05):
-            return shares, as_of
-    return weighted or (None, None)
+            return shares, as_of, "balance sheet"
+    return weighted or (None, None, None)

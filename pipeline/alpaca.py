@@ -48,16 +48,18 @@ def _bars(c: Client, symbols: list[str], start: str, end: str, adjustment: str) 
 
 
 def fetch_prices(c: Client, symbols: list[str], start: str, now: datetime | None = None) -> pd.DataFrame:
-    """Daily OHLCV for the full market (SIP feed), adjusted for splits.
+    """Daily OHLCV for the full market (SIP feed), adjusted for splits and spin-offs.
+    (Without the spin-off adjustment, a company that hands shareholders a new company,
+    as Honeywell did in 2026, shows a crash that no shareholder experienced.)
 
     - The free plan refuses the latest 15 minutes of SIP data, so `end` is 20 minutes ago.
     - Today's bar (New York date) is dropped: it may be incomplete.
-    - `close_total_return` is the close adjusted for splits AND dividends; use it for
+    - `close_total_return` is also adjusted for dividends; use it for
       long-run performance, and `close` for anything shown as a price.
     """
     now = now or datetime.now(timezone.utc)
     end = (now - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    prices = _bars(c, symbols, start, end, "split")
+    prices = _bars(c, symbols, start, end, "split,spin-off")
     total = _bars(c, symbols, start, end, "all")[["ticker", "price_date", "close"]]
     prices = prices.merge(total.rename(columns={"close": "close_total_return"}),
                           on=["ticker", "price_date"], how="left")

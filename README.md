@@ -5,11 +5,12 @@ company events, insider trades, news and macro context a "stock card" needs. Eve
 comes from **free** sources. The product UI is not built yet; the Streamlit app in this repo
 is an internal viewer for checking the data.
 
-> **Status: validated on two stocks, not yet on all 49.** A real run for Apple and JPMorgan
-> (11 Nov 2026) matched published figures: annual revenue, net income and EPS for 2021-2025,
-> trailing-12-month figures, share count, market cap and P/E. That run also exposed six bugs,
-> now fixed and covered by tests. The other 47 stocks, and Form 4 parsing in detail, are
-> still unchecked. [First real run](#first-real-run) lists what to look at.
+> **Status: checked on all 49 stocks once; a second pass is needed.** The first full run
+> (11 Nov 2026) was correct for most large companies and matched published figures for Apple
+> and JPMorgan. It also showed gaps and errors on about ten stocks. Most are fixed in code but
+> those fixes have only been tested on synthetic data. Three stocks (NEE, DUK, PLD) show
+> results that stop in March 2026 for a reason not yet understood.
+> [Known problems](#known-problems) has the list.
 
 ## How it works
 
@@ -45,7 +46,7 @@ to BigQuery as column descriptions and shown as tooltips in the viewer.
 ```bash
 pip install -r requirements.txt
 cp .env.example .env        # then fill it in
-python -m pytest -q         # 65 tests, no network or credentials needed
+python -m pytest -q         # 72 tests, no network or credentials needed
 ```
 
 Keys needed (all free): an [Alpaca](https://alpaca.markets/) account (paper keys are enough), a
@@ -87,6 +88,26 @@ What to check when running all 49 stocks:
 - **Form 4 parsing.** It runs, but individual trades have not been compared with the filings.
 
 On Windows, use `py -m pipeline ...` and `py -m streamlit run app.py`.
+
+## Known problems
+
+From the first 49-stock run. "Fixed" means fixed in code and unit-tested, not yet re-run on real data.
+
+| Stock | Problem | State |
+|---|---|---|
+| MCD | Share count filed in millions, so market cap came out near $200,000 | Fixed: counts are rescaled against profit / EPS |
+| BRK.B | Last usable share count is from 2015; market cap was 14% too high | Fixed to show nothing: market cap and P/E are now empty. A real fix needs the cover-page count from the filing itself |
+| V | No share count or EPS in EDGAR's API (multi-class) | Approximated: shares = dividends paid / dividend per share. `shares_basis` says so |
+| XOM | New SEC registrant since July 2026, so no history | Fixed: the previous registrant's history is merged (`PREDECESSOR_CIKS`) |
+| HON | Price showed a 42% one-year loss that was really the 2026 spin-off | Fixed: prices are now adjusted for spin-offs |
+| NEE, DUK, PLD | Results stop at March 2026; NEE's revenue looks rounded | Not understood. Run the diagnosis below |
+| ~15 stocks | Empty EBITDA, operating margin, equity, debt or free cash flow | Partly fixed with fallbacks; the rest needs tags added to `CONCEPTS` |
+
+To see what a company filed for each empty metric, and so which tags to add:
+
+```bash
+python -m pipeline.diagnose out      # writes out/diagnosis.txt
+```
 
 ## Scheduled refresh
 
@@ -172,9 +193,13 @@ candidate tag, so it survives a company re-filing old years under a new tag.
   per share class. If a company reports EPS or share counts only that way, EPS falls back to
   net income / shares, and if shares are missing too, market cap and every valuation ratio are
   empty. The Data quality page lists these.
-- **BRK.B** is handled with a hard-coded 1,500 multiplier (`SHARE_CLASS_MULTIPLIER`), because
-  Berkshire reports in Class A equivalents. The `fundamentals` table keeps the as-reported
-  figures; only `stock_snapshot` applies the multiplier.
+- **BRK.B** has no market cap or P/E: Berkshire has not reported a usable share count through
+  EDGAR's API since 2015. The 1,500 multiplier (`SHARE_CLASS_MULTIPLIER`, Class A to Class B)
+  is kept for when a count is available.
+- **Prices are adjusted for spin-offs as well as splits**, so past prices of GE or Honeywell
+  are lower than what traded at the time.
+- **Fallbacks are approximations**: operating income as pre-tax income plus interest, equity
+  including minorities, share count implied from dividends.
 - **Banks, brokers and insurers** (SIC 6000-6499) have gross margin, EBITDA, debt, enterprise
   value and cash-flow metrics left empty in `stock_snapshot`: they do not mean the same thing
   there. Visa is not in that range and is treated as a normal company.
@@ -245,6 +270,7 @@ pipeline/
   fundamentals.py       raw facts -> quarters / years / TTM
   snapshot.py           price statistics and the one-row-per-stock table
   bq.py                 BigQuery and local-CSV writers
+  diagnose.py           explains gaps in a local run
 app.py, app_data.py, pages/   the internal viewer
 tests/                  synthetic-data tests, including a full end-to-end run
 ```

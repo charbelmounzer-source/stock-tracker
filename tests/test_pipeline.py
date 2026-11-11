@@ -94,6 +94,16 @@ def test_one_failing_source_does_not_stop_the_rest(fake_sources, tmp_path, capsy
     assert "news         FAILED: news is down" in out and "snapshot     ok" in out
 
 
+def test_predecessor_registrant_history_is_merged(fake_sources, tmp_path, monkeypatch):
+    monkeypatch.setattr("pipeline.config.PREDECESSOR_CIKS", {"AAPL": ["0000000042"]})
+    seen = []
+    original = edgar.fetch_company_facts
+    monkeypatch.setattr(edgar, "fetch_company_facts", lambda c, cik: seen.append(cik) or original(c, cik))
+    assert runner.main(["--local", str(tmp_path), "--tickers", "AAPL", "--only", "facts,fundamentals"]) == 0
+    assert seen == ["0000320193", "0000000042"]
+    assert not read(tmp_path, "fundamentals").duplicated(["period_type", "period_end"]).any()
+
+
 def test_only_runs_the_requested_steps(fake_sources, tmp_path):
     assert runner.main(["--local", str(tmp_path), "--tickers", "AAPL", "--only", "prices,macro"]) == 0
     assert sorted(p.name for p in tmp_path.iterdir()) == ["macro.csv", "prices.csv"]

@@ -140,6 +140,20 @@ def test_eps_falls_back_to_profit_per_share(inputs):
     assert snap["pe_ttm"] == pytest.approx(snap["market_cap"] / snap["net_income_ttm"])
 
 
+def test_share_count_implied_from_dividends_when_none_is_reported(inputs):
+    companies, prices, fundamentals = inputs
+    no_shares = fundamentals.assign(shares_diluted=np.nan, shares_basic=np.nan, shares_outstanding=np.nan,
+                                    eps_diluted=np.nan, eps_basic=np.nan, dividends_paid=2000.0)
+    actions = pd.DataFrame([(t, "cash_dividend", "2024-11-01", None, 2.0, False) for t in ("TEST", "BANK")],
+                           columns=ACTION_COLUMNS)
+    snap = build_snapshot(companies, prices, no_shares, actions).set_index("ticker").loc["TEST"]
+    assert snap["shares"] == 1000 and snap["shares_basis"] == "implied from dividends"
+    assert snap["market_cap"] == pytest.approx(50_000)
+    assert snap["eps_diluted_ttm"] == pytest.approx(snap["net_income_ttm"] / 1000)
+    without_dividends = build_snapshot(companies, prices, no_shares).set_index("ticker").loc["TEST"]
+    assert pd.isna(without_dividends["market_cap"]) and pd.isna(without_dividends["pe_ttm"])  # empty, not wrong
+
+
 # ----------------------------------------------------------------- schemas
 
 def test_conform_types_order_and_load_timestamp(inputs):

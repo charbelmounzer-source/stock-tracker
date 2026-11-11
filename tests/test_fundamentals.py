@@ -172,13 +172,12 @@ def test_only_annual_and_quarterly_reports_are_used():
 
 
 def test_latest_share_count(company):
-    shares, as_of = latest_share_count(company)
-    assert shares == 1000 and as_of == pd.Timestamp("2024-12-31")
+    assert latest_share_count(company) == (1000, pd.Timestamp("2024-12-31"), "weighted average")
 
 
 def test_share_count_prefers_the_balance_sheet_figure_when_it_is_plausible(company):
     with_point = company.assign(shares_outstanding=980.0)       # slightly below the average: buybacks
-    assert latest_share_count(with_point) == (980.0, pd.Timestamp("2024-12-31"))
+    assert latest_share_count(with_point) == (980.0, pd.Timestamp("2024-12-31"), "balance sheet")
     one_class_only = company.assign(shares_outstanding=300.0)   # a single share class: not the whole company
     assert latest_share_count(one_class_only)[0] == 1000
 
@@ -250,3 +249,38 @@ def test_ttm_at_year_end_is_the_reported_year_not_a_sum_of_rounded_quarters():
 def test_company_without_usable_facts_gives_empty_frame():
     df = build_fundamentals("TEST", facts_frame([("Assets", "USD", None, "2023-12-31", 5, "10-K", "2024-02-10")]))
     assert df.empty and list(df.columns) == COLUMNS
+
+
+def test_stale_share_count_is_ignored(company):
+    old_only = company.copy()
+    old_only.loc[old_only["period_end"] > "2023-12-31", ["shares_diluted", "shares_basic"]] = float("nan")
+    assert latest_share_count(old_only) == (None, None, None)   # Berkshire: last usable count was 2015
+
+
+def test_share_counts_filed_in_millions_are_rescaled():
+    rows = standard_company(years=(2023,))
+    rows = [(tag, unit, s, e, v / 1e6 if unit == "shares" else v, form, filed)
+            for tag, unit, s, e, v, form, filed in rows]          # 1,000 shares filed as "0.001 million"
+    fy = row(build_fundamentals("TEST", facts_frame(rows)), "FY", "2023-12-31")
+    assert fy["shares_diluted"] == pytest.approx(1000)
+
+
+def test_fallbacks_for_items_not_reported_on_their_own_line():
+    rows = (flow("Revenues", 2023, [100] * 4) + flow("NetIncomeLoss", 2023, [10] * 4)
+            + flow("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+                   2023, [14] * 4)
+            + flow("InterestExpense", 2023, [1] * 4)
+            + flow("Depreciation", 2023, [3] * 4, direct_quarters=False)
+            + flow("AmortizationOfIntangibleAssets", 2023, [2] * 4, direct_quarters=False)
+            + instant("StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest", 2023, [500] * 4))
+    fy = row(build_fundamentals("TEST", facts_frame(rows)), "FY", "2023-12-31")
+    assert fy["operating_income"] == 60          # pre-tax 56 + interest 4
+    assert fy["depreciation_amortization"] == 20
+    assert fy["ebitda"] == 80
+    assert fy["equity"] == 500
+
+
+def test_spin_off_price_factors_are_not_treated_as_share_splits():
+    detected = pd.DataFrame({"ex_date": pd.to_datetime([]), "split_ratio": []})
+    provider = pd.DataFrame({"ex_date": ["2018-10-01", "2026-06-29"], "split_ratio": [1.011, 0.5]})
+    assert combine_splits(detected, provider)["split_ratio"].tolist() == [0.5]
