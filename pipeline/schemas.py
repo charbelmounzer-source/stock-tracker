@@ -15,8 +15,9 @@ _CONCEPT_DOCS = {
     "gross_profit": "Revenue minus cost of revenue (computed when not reported)",
     "rd_expense": "Research and development expense",
     "sga_expense": "Selling, general and administrative expense",
-    "operating_income": "Profit from operations (pre-tax income plus interest when not reported)",
+    "operating_income": "Profit from operations (pre-tax income plus net interest cost when not reported)",
     "interest_expense": "Interest paid on debt",
+    "net_interest_income": "Interest income minus interest expense, when reported as one net line",
     "pretax_income": "Profit before income tax",
     "income_tax": "Income tax expense",
     "net_income": "Bottom-line profit",
@@ -46,6 +47,7 @@ _CONCEPT_DOCS = {
     "long_term_debt_noncurrent": "Long-term debt due after a year",
     "long_term_debt_current": "Long-term debt due within a year",
     "long_term_debt_total": "Long-term debt including the part due within a year",
+    "debt_all_in": "Total debt as one reported figure (usually annual only)",
     "short_term_borrowings": "Short-term borrowings and commercial paper",
     "debt_current": "All debt due within a year",
 }

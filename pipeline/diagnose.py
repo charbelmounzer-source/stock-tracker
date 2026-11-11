@@ -42,7 +42,8 @@ def main(folder: str) -> int:
 
     for s in snapshot.to_dict("records"):
         missing = [c for c in CANDIDATES if pd.isna(s[c])
-                   and not (s["is_financial"] and c in NOT_EXPECTED_FOR_FINANCIALS)]
+                   and not (s["is_financial"] and c in NOT_EXPECTED_FOR_FINANCIALS)
+                   and not (c == "pe_ttm" and s["eps_diluted_ttm"] <= 0)]  # no P/E on a loss: expected
         age = (s["price_date"] - s["fundamentals_period_end"]).days if pd.notna(s["fundamentals_period_end"]) else None
         stale = age is None or age > 150
         if not missing and not stale:
@@ -69,5 +70,22 @@ def main(folder: str) -> int:
     return 0
 
 
+def probe(ciks: list[str]) -> int:
+    """python -m pipeline.diagnose probe CIK [CIK ...]: the latest profit facts EDGAR holds
+    under each CIK. Used to find where a company's recent results went when its own CIK has
+    none (filings shared with subsidiaries, a new holding company...)."""
+    from . import edgar
+    client = edgar.client()
+    for cik in ciks:
+        payload = edgar.fetch_company_facts(client, cik.zfill(10))
+        facts, _ = edgar.flatten_facts("?", payload)
+        latest = facts[facts["tag"].isin(["NetIncomeLoss", "ProfitLoss"])].sort_values(["end_date", "filed_date"])
+        print(f"\nCIK {cik}  {payload.get('entityName')}\n"
+              + latest[["tag", "start_date", "end_date", "value", "form", "filed_date"]].tail(6).to_string(index=False))
+    return 0
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[1] == "probe":
+        sys.exit(probe(sys.argv[2:]))
     sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "out"))

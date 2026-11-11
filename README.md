@@ -5,12 +5,10 @@ company events, insider trades, news and macro context a "stock card" needs. Eve
 comes from **free** sources. The product UI is not built yet; the Streamlit app in this repo
 is an internal viewer for checking the data.
 
-> **Status: checked on all 49 stocks once; a second pass is needed.** The first full run
-> (11 Nov 2026) was correct for most large companies and matched published figures for Apple
-> and JPMorgan. It also showed gaps and errors on about ten stocks. Most are fixed in code but
-> those fixes have only been tested on synthetic data. Three stocks (NEE, DUK, PLD) show
-> results that stop in March 2026 for a reason not yet understood.
-> [Known problems](#known-problems) has the list.
+> **Status: usable for 45 of 49 stocks, with four known gaps.** Two full runs on 11 Nov 2026.
+> Apple and JPMorgan were checked against published figures; the others were checked for
+> plausibility only, not against a second source. NEE, DUK and PLD show results that stop in
+> March 2026, and BRK.B has no market cap. [Known problems](#known-problems) has the detail.
 
 ## How it works
 
@@ -46,7 +44,7 @@ to BigQuery as column descriptions and shown as tooltips in the viewer.
 ```bash
 pip install -r requirements.txt
 cp .env.example .env        # then fill it in
-python -m pytest -q         # 71 tests, no network or credentials needed
+python -m pytest -q         # 73 tests, no network or credentials needed
 ```
 
 Keys needed (all free): an [Alpaca](https://alpaca.markets/) account (paper keys are enough), a
@@ -95,13 +93,14 @@ From the first 49-stock run. "Fixed" means fixed in code and unit-tested, not ye
 
 | Stock | Problem | State |
 |---|---|---|
-| MCD | Share count filed in millions, so market cap came out near $200,000 | Fixed: counts are rescaled against profit / EPS |
-| BRK.B | Last usable share count is from 2015; market cap was 14% too high | Fixed to show nothing: market cap and P/E are now empty. A real fix needs the cover-page count from the filing itself |
-| V | No share count or EPS in EDGAR's API (multi-class) | Approximated: shares = dividends paid / dividend per share. `shares_basis` says so |
-| XOM | New SEC registrant since July 2026, so no history | Fixed: the previous registrant's history is merged (`PREDECESSOR_CIKS`) |
-| HON | Price showed a 42% one-year loss that was really the 2026 spin-off | Fixed: prices are now adjusted for spin-offs |
-| NEE, DUK, PLD | Results stop at March 2026; NEE's revenue looks rounded | Not understood. Run the diagnosis below |
-| ~15 stocks | Empty EBITDA, operating margin, equity, debt or free cash flow | Partly fixed with fallbacks; the rest needs tags added to `CONCEPTS` |
+| NEE, DUK, PLD | Results stop at March 2026 | Open. Their later 10-Qs exist, but EDGAR's facts API returns nothing from them under the company's CIK. All three file jointly with subsidiaries, so the facts may sit under a subsidiary's CIK: check with `python -m pipeline.diagnose probe <CIK>`, then add it to `PREDECESSOR_CIKS` |
+| BRK.B | No usable share count since 2015 | Market cap and P/E left empty. A real fix needs the cover-page count from the filing itself |
+| V | No share count or EPS in EDGAR's API (multi-class) | Approximated: shares = dividends paid / dividend per share (`shares_basis` says so). Gave a market cap of $807B |
+| MCD | Share count filed in millions | Fixed and confirmed on real data |
+| XOM | New SEC registrant since July 2026 | Fixed and confirmed: the previous registrant's history is merged |
+| HON | Price showed the 2026 spin-off as a 42% loss | Fixed and confirmed: prices adjust for spin-offs |
+| ORCL, CAT, COP, NKE, GE, VZ, T | Some of debt, EBITDA, operating margin or free cash flow empty | Tags added after the second run; not yet re-run. COP, NEE and PLD use company-specific capex tags that the API does not expose |
+| 13 stocks | Gross margin empty | Expected: these companies do not report a cost of revenue (telecoms, utilities, restaurants, Visa, Exxon...) |
 
 To see what a company filed for each empty metric, and so which tags to add:
 

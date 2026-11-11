@@ -40,16 +40,21 @@ def _c(kind, *tags, unit="USD", split=None):
 
 CONCEPTS = {
     # --- income statement
-    "revenue": _c("flow", "RevenuesNetOfInterestExpense", "Revenues",
+    # Banks' net revenue first; then utilities' total operating revenue (NextEra also files a
+    # rounded `Revenues` figure that is not its income-statement total); then the general tags.
+    "revenue": _c("flow", "RevenuesNetOfInterestExpense", "RegulatedAndUnregulatedOperatingRevenue", "Revenues",
                   "RevenueFromContractWithCustomerExcludingAssessedTax",
                   "RevenueFromContractWithCustomerIncludingAssessedTax",
-                  "SalesRevenueNet", "SalesRevenueGoodsNet", "RegulatedAndUnregulatedOperatingRevenue"),
-    "cost_of_revenue": _c("flow", "CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold"),
+                  "SalesRevenueNet", "SalesRevenueGoodsNet"),
+    "cost_of_revenue": _c("flow", "CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold",
+                          "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization"),
     "gross_profit": _c("flow", "GrossProfit"),
     "rd_expense": _c("flow", "ResearchAndDevelopmentExpense"),
     "sga_expense": _c("flow", "SellingGeneralAndAdministrativeExpense"),
     "operating_income": _c("flow", "OperatingIncomeLoss"),
-    "interest_expense": _c("flow", "InterestExpense", "InterestExpenseNonoperating", "InterestExpenseDebt"),
+    "interest_expense": _c("flow", "InterestExpense", "InterestExpenseNonoperating", "InterestAndDebtExpense",
+                           "InterestExpenseDebt"),
+    "net_interest_income": _c("flow", "InterestIncomeExpenseNet", "InterestIncomeExpenseNonoperatingNet"),
     "pretax_income": _c(
         "flow",
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
@@ -69,7 +74,8 @@ CONCEPTS = {
     # --- cash flow
     "operating_cash_flow": _c("flow", "NetCashProvidedByUsedInOperatingActivities",
                               "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
-    "capex": _c("flow", "PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"),
+    "capex": _c("flow", "PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets",
+                "PaymentsToAcquireOtherProductiveAssets"),
     "depreciation_amortization": _c("flow", "DepreciationDepletionAndAmortization",
                                     "DepreciationAmortizationAndAccretionNet", "DepreciationAndAmortization",
                                     "DepreciationAmortizationAndOther"),
@@ -90,9 +96,13 @@ CONCEPTS = {
     "equity": _c("instant", "StockholdersEquity"),
     "equity_incl_minorities": _c("instant", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"),
     "liabilities_and_equity": _c("instant", "LiabilitiesAndStockholdersEquity"),
-    "long_term_debt_noncurrent": _c("instant", "LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations"),
-    "long_term_debt_current": _c("instant", "LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent"),
-    "long_term_debt_total": _c("instant", "LongTermDebt"),
+    "long_term_debt_noncurrent": _c("instant", "LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations",
+                                    "LongTermNotesPayable"),
+    "long_term_debt_current": _c("instant", "LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent",
+                                 "NotesPayableCurrent"),
+    "long_term_debt_total": _c("instant", "LongTermDebt",
+                               "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities"),
+    "debt_all_in": _c("instant", "DebtLongtermAndShorttermCombinedAmount", "DebtAndCapitalLeaseObligations"),
     "short_term_borrowings": _c("instant", "ShortTermBorrowings", "CommercialPaper", "OtherShortTermBorrowings"),
     "debt_current": _c("instant", "DebtCurrent"),
 }
@@ -322,6 +332,7 @@ def add_metrics(df: pd.DataFrame) -> pd.DataFrame:
     d["total_liabilities"] = d["total_liabilities"].fillna(
         d["liabilities_and_equity"] - d["equity_incl_minorities"].fillna(d["equity"]))
     d["operating_income"] = d["operating_income"].fillna(d["pretax_income"] + d["interest_expense"])
+    d["operating_income"] = d["operating_income"].fillna(d["pretax_income"] - d["net_interest_income"])
     separate = d[["depreciation", "amortization_of_intangibles"]]
     d["depreciation_amortization"] = d["depreciation_amortization"].fillna(
         separate.sum(axis=1).where(separate.notna().any(axis=1)))
@@ -332,7 +343,7 @@ def add_metrics(df: pd.DataFrame) -> pd.DataFrame:
     due_within_a_year = d["debt_current"].fillna(
         d["long_term_debt_current"].fillna(0) + d["short_term_borrowings"].fillna(0))
     d["total_debt"] = (d["long_term_debt_noncurrent"] + due_within_a_year).fillna(
-        d["long_term_debt_total"] + d["short_term_borrowings"].fillna(0))
+        d["long_term_debt_total"] + d["short_term_borrowings"].fillna(0)).fillna(d["debt_all_in"])
     d["net_debt"] = d["total_debt"] - d["cash"] - d["short_term_investments"].fillna(0)
 
     d["gross_margin"] = _ratio(d["gross_profit"], d["revenue"])

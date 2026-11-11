@@ -284,3 +284,19 @@ def test_spin_off_price_factors_are_not_treated_as_share_splits():
     detected = pd.DataFrame({"ex_date": pd.to_datetime([]), "split_ratio": []})
     provider = pd.DataFrame({"ex_date": ["2018-10-01", "2026-06-29"], "split_ratio": [1.011, 0.5]})
     assert combine_splits(detected, provider)["split_ratio"].tolist() == [0.5]
+
+
+def test_utility_revenue_tag_beats_a_stray_revenues_figure():
+    rows = (flow("RegulatedAndUnregulatedOperatingRevenue", 2023, [110] * 4)
+            + [("Revenues", "USD", "2023-01-01", "2023-12-31", 400, "10-K", "2024-02-10")])
+    assert row(build_fundamentals("TEST", facts_frame(rows)), "FY", "2023-12-31")["revenue"] == 440
+
+
+def test_operating_income_from_a_net_interest_line_and_all_in_debt():
+    rows = (flow("Revenues", 2023, [100] * 4)
+            + flow("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+                   2023, [14] * 4)
+            + flow("InterestIncomeExpenseNet", 2023, [-1] * 4)          # net cost of 1 a quarter
+            + instant("DebtLongtermAndShorttermCombinedAmount", 2023, [300] * 4))
+    fy = row(build_fundamentals("TEST", facts_frame(rows)), "FY", "2023-12-31")
+    assert fy["operating_income"] == 60 and fy["total_debt"] == 300
