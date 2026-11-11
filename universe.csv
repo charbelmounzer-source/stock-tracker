@@ -1,0 +1,50 @@
+ticker,sector
+AAPL,Technology
+MSFT,Technology
+NVDA,Technology
+AVGO,Technology
+AMD,Technology
+INTC,Technology
+ORCL,Technology
+CRM,Technology
+ADBE,Technology
+IBM,Technology
+CSCO,Technology
+GOOGL,Communication Services
+META,Communication Services
+NFLX,Communication Services
+DIS,Communication Services
+VZ,Communication Services
+T,Communication Services
+AMZN,Consumer Discretionary
+TSLA,Consumer Discretionary
+HD,Consumer Discretionary
+MCD,Consumer Discretionary
+NKE,Consumer Discretionary
+SBUX,Consumer Discretionary
+KO,Consumer Staples
+PEP,Consumer Staples
+PG,Consumer Staples
+WMT,Consumer Staples
+COST,Consumer Staples
+JNJ,Health Care
+PFE,Health Care
+UNH,Health Care
+ABBV,Health Care
+MRK,Health Care
+JPM,Financials
+V,Financials
+GS,Financials
+MS,Financials
+BRK.B,Financials
+XOM,Energy
+CVX,Energy
+COP,Energy
+BA,Industrials
+CAT,Industrials
+GE,Industrials
+HON,Industrials
+NEE,Utilities
+DUK,Utilities
+LIN,Materials
+PLD,Real Estate
