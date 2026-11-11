@@ -46,7 +46,7 @@ to BigQuery as column descriptions and shown as tooltips in the viewer.
 ```bash
 pip install -r requirements.txt
 cp .env.example .env        # then fill it in
-python -m pytest -q         # 72 tests, no network or credentials needed
+python -m pytest -q         # 71 tests, no network or credentials needed
 ```
 
 Keys needed (all free): an [Alpaca](https://alpaca.markets/) account (paper keys are enough), a
