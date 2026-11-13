@@ -25,8 +25,9 @@ Only free data sources for now; paid ones are to be evaluated later.
 1. **NEE, DUK, PLD: fixed 13 Nov 2026** via `CO_REGISTRANT_CIKS` (see README). Confirm on
    the next nightly run; NEE's Q3 2026 net income ($4.8B, about twice last year's) is worth a
    look against NextEra's press release.
-2. **Re-run and re-check** the tag additions made after the second run (ORCL, CAT, COP, NKE,
-   GE, VZ, T debt / EBITDA / free cash flow). AT&T's empty free cash flow is unexplained.
+2. **Tag re-check: done 13 Nov 2026** (see README Known problems). ORCL debt and AT&T free
+   cash flow fixed; CAT debt and COP/NEE/PLD capex are not in the free API; GE has no
+   operating income line. A full 49-stock comparison showed no previously filled value changed.
 3. **BRK.B** has no market cap: needs the cover-page share count from the filing itself.
 4. **Scale to 150-200 stocks**: batch Alpaca requests (about 100 tickers per call) and derive
    sectors instead of hand-labelling. 1,000 stocks needs incremental loads for xbrl_facts,

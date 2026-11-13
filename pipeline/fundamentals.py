@@ -32,10 +32,11 @@ class Concept:
     tags: tuple              # candidate us-gaap tags, most trusted first
     unit: str = "USD"
     split: str | None = None  # "divide" for per-share amounts, "multiply" for share counts
+    pool: bool = False        # treat the tags as one series where they agree (see _pooled)
 
 
-def _c(kind, *tags, unit="USD", split=None):
-    return Concept(kind, tags, unit, split)
+def _c(kind, *tags, unit="USD", split=None, pool=False):
+    return Concept(kind, tags, unit, split, pool)
 
 
 CONCEPTS = {
@@ -72,8 +73,10 @@ CONCEPTS = {
                          unit="shares", split="multiply"),
     "shares_outstanding": _c("instant", "CommonStockSharesOutstanding", unit="shares", split="multiply"),
     # --- cash flow
+    # AT&T moved to the "continuing operations" tag in 2026 but its FY2025 total sits under the
+    # plain one: pooling lets Q4 2025 be derived across the two (see _pooled).
     "operating_cash_flow": _c("flow", "NetCashProvidedByUsedInOperatingActivities",
-                              "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
+                              "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations", pool=True),
     "capex": _c("flow", "PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets",
                 "PaymentsToAcquireOtherProductiveAssets"),
     "depreciation_amortization": _c("flow", "DepreciationDepletionAndAmortization",
@@ -97,7 +100,7 @@ CONCEPTS = {
     "equity_incl_minorities": _c("instant", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"),
     "liabilities_and_equity": _c("instant", "LiabilitiesAndStockholdersEquity"),
     "long_term_debt_noncurrent": _c("instant", "LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations",
-                                    "LongTermNotesPayable"),
+                                    "LongTermNotesPayable", "LongTermNotesAndLoans"),
     "long_term_debt_current": _c("instant", "LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent",
                                  "NotesPayableCurrent"),
     "long_term_debt_total": _c("instant", "LongTermDebt",
@@ -263,6 +266,29 @@ def _instant_periods(sub: pd.DataFrame) -> dict:
             for end, value, reported in zip(d["end_date"], d["value"], d["first_filed"])}
 
 
+def _pooled(by_tag: dict, concept: Concept) -> pd.DataFrame | None:
+    """All candidate tags as one series (the preferred tag wins a shared period), limited to
+    the periods after the last one on which the tags disagreed (by more than 0.5%), and only
+    if they agree on at least one shared period since. AT&T's two cash-flow tags differed
+    while it had discontinued operations (2017, 2020-22) and have matched since: from 2022
+    on they measure the same thing. Otherwise None: tags that differ must not be mixed."""
+    subs = [by_tag[t][by_tag[t]["unit"] == concept.unit] for t in concept.tags if t in by_tag]
+    if len(subs) < 2:
+        return None
+    pooled = pd.concat(subs, ignore_index=True)
+    keys = ["start_date", "end_date"]
+    spread = pooled.groupby(keys, dropna=False)["value"].agg(["min", "max", "count"])
+    shared = spread[spread["count"] > 1]
+    differ = (shared["max"] - shared["min"]).abs() > 0.005 * shared["max"].abs()
+    if differ.any():
+        last_difference = shared.index[differ].get_level_values("end_date").max()
+        pooled = pooled[pooled["end_date"] > last_difference]
+        shared = shared[shared.index.get_level_values("end_date") > last_difference]
+    if shared.empty:
+        return None
+    return pooled.drop_duplicates(keys)
+
+
 def concept_values(by_tag: dict, concept: Concept, splits=None) -> tuple[dict, dict]:
     """Resolve one concept across its candidate tags. Returns (values, which tag supplied each).
 
@@ -282,6 +308,12 @@ def concept_values(by_tag: dict, concept: Concept, splits=None) -> tuple[dict, d
             first_seen[key] = min(first_seen.get(key, hit[1]), hit[1])
             if key not in values:
                 values[key], sources[key] = hit, tag
+    pooled = _pooled(by_tag, concept) if concept.pool else None
+    if pooled is not None:  # only fills periods no single tag could supply
+        for key, hit in _flow_periods(pooled, concept.kind == "flow").items():
+            if key not in values:
+                first_seen[key] = min(first_seen.get(key, hit[1]), hit[1])
+                values[key], sources[key] = hit, "+".join(concept.tags)
     values = {key: (value, first_seen[key], derived) for key, (value, _, derived) in values.items()}
     return values, sources
 

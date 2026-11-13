@@ -113,6 +113,36 @@ def test_preferred_tag_wins_when_two_are_reported():
     assert row(build_fundamentals("TEST", facts_frame(rows)), "FY", "2023-12-31")["revenue"] == 400
 
 
+def _renamed_cash_flow(restated_2023):
+    """As AT&T filed it: all of 2023 under the plain tag; 2024 under the new tag, whose 10-Qs
+    also restate the 2023 year-to-date comparatives. No 2023 full year under the new tag."""
+    old, new = "NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"
+    rows = flow(old, 2023, [50, 50, 50, 50], direct_quarters=False)
+    rows += [r for r in flow(new, 2023, restated_2023, direct_quarters=False) if r[5] == "10-Q"]
+    rows += flow(new, 2024, [60, 60, 60, 60], direct_quarters=False)
+    return rows + flow("Revenues", 2023, [100] * 4) + flow("Revenues", 2024, [100] * 4)
+
+
+def test_renamed_cash_flow_tag_still_gives_ttm():
+    df = build_fundamentals("TEST", facts_frame(_renamed_cash_flow([50, 50, 50, 50])))
+    assert row(df, "Q", "2024-09-30")["operating_cash_flow"] == 60
+    assert row(df, "TTM", "2024-09-30")["operating_cash_flow"] == 230
+
+
+def test_tags_are_pooled_only_after_their_last_disagreement():
+    old_years = (flow("NetCashProvidedByUsedInOperatingActivities", 2022, [30, 30, 30, 30], direct_quarters=False)
+                 + flow("NetCashProvidedByUsedInOperatingActivitiesContinuingOperations", 2022, [20, 20, 20, 20],
+                        direct_quarters=False))
+    df = build_fundamentals("TEST", facts_frame(old_years + _renamed_cash_flow([50, 50, 50, 50])))
+    assert row(df, "FY", "2022-12-31")["operating_cash_flow"] == 120  # preferred tag, untouched
+    assert row(df, "TTM", "2024-09-30")["operating_cash_flow"] == 230
+
+
+def test_tags_that_disagree_are_not_pooled():
+    df = build_fundamentals("TEST", facts_frame(_renamed_cash_flow([40, 40, 40, 40])))
+    assert pd.isna(row(df, "TTM", "2024-09-30")["operating_cash_flow"])
+
+
 def test_q4_fallback_without_nine_month_figure():
     rows = [("Revenues", "USD", "2023-01-01", "2023-03-31", 100, "10-Q", "2023-05-05"),
             ("Revenues", "USD", "2023-04-01", "2023-06-30", 110, "10-Q", "2023-08-05"),
