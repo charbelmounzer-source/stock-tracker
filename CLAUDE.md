@@ -28,7 +28,7 @@ Only free data sources for now; paid ones are to be evaluated later.
 2. **Tag re-check: done 13 Nov 2026** (see README Known problems). ORCL debt and AT&T free
    cash flow fixed; CAT debt and COP/NEE/PLD capex are not in the free API; GE has no
    operating income line. A full 49-stock comparison showed no previously filled value changed.
-3. **BRK.B** has no market cap: needs the cover-page share count from the filing itself.
+3. **BRK.B and V: left empty on purpose** (no share count in the API; no patches).
 4. **Scale to 150-200 stocks**: batch Alpaca requests (about 100 tickers per call) and derive
    sectors instead of hand-labelling. 1,000 stocks needs incremental loads for xbrl_facts,
    insider_trades and news, and billing enabled.
@@ -49,6 +49,11 @@ Only free data sources for now; paid ones are to be evaluated later.
 - Every table is fully rebuilt on each run (load jobs, WRITE_TRUNCATE). No incremental logic yet.
 - `pipeline/schemas.py` is the data dictionary; a new column must be added there first.
 - A missing number is better than a wrong one: leave metrics empty when the inputs are doubtful.
+  No estimates or approximations presented as data.
+- No per-company patches: use what the standard SEC data gives, through rules that apply to
+  every company. If a stock needs special handling, leave it empty and list it in the README's
+  Known problems as "left empty on purpose". (Existing per-company lists: `PREDECESSOR_CIKS`,
+  `CO_REGISTRANT_CIKS`, `SHARE_CLASS_MULTIPLIER`; replace them with general rules when scaling.)
 - Claude's cloud environment `stock-tracker` can reach the SEC (data.sec.gov, www.sec.gov;
   needs `SEC_USER_AGENT`) but not Alpaca, BigQuery or FRED. Logic needing those is tested on
   synthetic data (`tests/fakes.py`) and then validated by the owner's real run. Say so plainly.
