@@ -5,10 +5,10 @@ company events, insider trades, news and macro context a "stock card" needs. Eve
 comes from **free** sources. The product UI is not built yet; the Streamlit app in this repo
 is an internal viewer for checking the data.
 
-> **Status: usable for 45 of 49 stocks, with four known gaps.** Two full runs on 11 Nov 2026.
-> Apple and JPMorgan were checked against published figures; the others were checked for
-> plausibility only, not against a second source. NEE, DUK and PLD were stale until the fix of
-> 13 Nov 2026 (see Known problems), and BRK.B has no market cap. [Known problems](#known-problems) has the detail.
+> **Status: 200 stocks since 13 Nov 2026.** The first 49 had two full runs (11 Nov 2026); the
+> SEC steps for all 200 ran cleanly on 13 Nov, and the first full run with prices and BigQuery
+> is the next nightly. Apple and JPMorgan were checked against published figures; the others
+> for plausibility only. Gaps are left empty, not estimated: [Known problems](#known-problems).
 
 ## How it works
 
@@ -104,6 +104,9 @@ From the first 49-stock run. "Fixed" means fixed in code and unit-tested, not ye
 | CAT | Debt empty | Not fixable from this API: Caterpillar tags its debt with company-specific tags only |
 | GE | Operating income, EBITDA, operating margin empty | Expected: GE reports neither an operating income nor an interest expense line, so no fallback applies |
 | COP, NEE, PLD | Capex (so free cash flow) empty | Not fixable from this API: company-specific capex tags |
+| CP, ENB | No financials at all | Expected: Canadian companies filing 10-Ks in Canadian dollars; the pipeline reads USD figures only |
+| C, SO, AEP, DLR, URI | Results stop at Dec 2025 (C) or Mar 2026 | Open, seen in the first 200-stock SEC run (13 Nov 2026). SO and AEP file jointly with subsidiaries, like NEE and DUK: the general fix is to detect co-registrants automatically for every company instead of the `CO_REGISTRANT_CIKS` list |
+| ~20 stocks each | Free cash flow or total debt empty | Left empty: capex or debt not reported under a standard tag. Some (ANET, MNST, ISRG, PLTR) have no debt, but empty is not zero |
 | 13 stocks | Gross margin empty | Expected: these companies do not report a cost of revenue (telecoms, utilities, restaurants, Visa, Exxon...) |
 
 To see what a company filed for each empty metric, and so which tags to add:
@@ -120,10 +123,19 @@ branch. `.github/workflows/tests.yml` runs the tests on every push.
 
 ## Adding a stock
 
-Add a line to `universe.csv` (`ticker,sector`) and run the pipeline. The CIK, name and
-industry are looked up from the SEC. Sectors are our own labels, chosen to be readable; SEC
-industry codes are kept alongside but are too dated to show a beginner (Apple is "Electronic
-Computers").
+Add a line to `universe.csv` (one ticker per line) and run the pipeline, or grow the list
+with `python -m pipeline.universe 250`: it goes down the SEC's ticker list (roughly largest
+first; the SEC does not document the order) and adds NYSE / Nasdaq companies that filed a
+10-K in the last 15 months, until the list has that many. Existing tickers are always kept.
+Foreign companies filing 20-F / 40-F (ASML, Toyota) are skipped: their numbers are not in
+US GAAP.
+
+The CIK, name and SEC industry are looked up from the SEC. The **sector** comes from the
+SEC industry code through one table (`SIC_SECTORS` in `pipeline/config.py`), only where the
+code clearly implies a sector. Codes that mix sectors give no sector rather than a wrong one:
+Alphabet and Meta (7370, next to software firms), 3M (3841, next to medical devices), Visa,
+Mastercard, Uber, Accenture (7389, "business services"). About 30 of 200 stocks have no
+sector; the SEC's industry description is always there.
 
 ## Design choices
 
@@ -243,7 +255,8 @@ Needs a paid source:
 
 - Analyst estimates, price targets and upcoming earnings dates.
 - Real-time or intraday prices for all exchanges, and price history before 2016.
-- Clean sector and industry classification (GICS).
+- Clean sector and industry classification (GICS) for every stock, including the ~30 that the
+  SEC industry code cannot place.
 - Social sentiment (Reddit, X, StockTwits) at any useful scale.
 - EU stocks: no free, commercially usable price source. Fundamentals are partly free through
   filings.xbrl.org (annual only).
@@ -261,7 +274,7 @@ Needs a paid source:
 ## Repository layout
 
 ```
-universe.csv            the stocks tracked, with our sector labels
+universe.csv            the stocks tracked (one ticker per line)
 pipeline/
   __main__.py           the runner: steps, order, failure handling
   config.py             every setting and lookup table

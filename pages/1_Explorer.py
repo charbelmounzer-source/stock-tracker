@@ -18,7 +18,7 @@ def metrics(title: str, items: list[tuple[str, str, str]]):
 
 
 st.title(f"{s['company_name']} ({ticker})")
-st.caption(f"{s['sector']} · {s['sic_description']} · price as of {s['price_date']:%d %b %Y} · "
+st.caption(f"{' · '.join(str(v) for v in (s['sector'], s['sic_description']) if pd.notna(v))} · price as of {s['price_date']:%d %b %Y} · "
            "for information only, not investment advice")
 
 metrics("Today", [("Price", money, "close"), ("Today's change", pct, "ret_1d"),
