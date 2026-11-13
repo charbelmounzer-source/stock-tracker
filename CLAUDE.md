@@ -12,7 +12,10 @@ Only free data sources for now; paid ones are to be evaluated later.
 
 ## State (11 Nov 2026)
 
-- `python -m pipeline` works end to end on the real APIs for the 49 stocks in `universe.csv`.
+- `python -m pipeline` works end to end on the real APIs for the 49 original stocks.
+  13 Nov 2026: `universe.csv` grew to 200 (`python -m pipeline.universe`). The SEC steps were
+  run for all 200 from Claude's sandbox (31 min, 5.3M facts, no failures); the first full run
+  with Alpaca and BigQuery is the owner's next nightly run.
 - BigQuery dataset `stock_data_v2` is loaded. The GitHub workflow "Nightly data refresh"
   rebuilds it Tue-Sat at 07:17 UTC. The Streamlit Cloud app (internal viewer) reads it.
 - The BigQuery project is still a sandbox (tables expire after 60 days). The owner was
@@ -29,10 +32,13 @@ Only free data sources for now; paid ones are to be evaluated later.
    cash flow fixed; CAT debt and COP/NEE/PLD capex are not in the free API; GE has no
    operating income line. A full 49-stock comparison showed no previously filled value changed.
 3. **BRK.B and V: left empty on purpose** (no share count in the API; no patches).
-4. **Scale to 150-200 stocks**: batch Alpaca requests (about 100 tickers per call) and derive
-   sectors instead of hand-labelling. 1,000 stocks needs incremental loads for xbrl_facts,
-   insider_trades and news, and billing enabled.
-5. Later: sentiment from news headlines, an explanation layer on `stock_snapshot` (no
+4. **200 stocks: done 13 Nov 2026** (batched Alpaca, sectors from SIC, SEC-built universe).
+   Confirm the first nightly run. Then, general fixes only: detect co-registrants
+   automatically (stale C, SO, AEP, DLR, URI; replaces `CO_REGISTRANT_CIKS`).
+5. **Incremental loads** before going much past 200: xbrl_facts is 5.3M rows (~680 MB as
+   CSV) and fully reloaded nightly. Fetch companyfacts only for companies with a new
+   10-K/10-Q since the last run; append new insider trades and news. Needs billing enabled.
+6. Later: sentiment from news headlines, an explanation layer on `stock_snapshot` (no
    Buy/Sell/Hold calls), then the real UI.
 
 ## Working with the owner
