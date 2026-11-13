@@ -17,6 +17,7 @@ ACTIONS_START = "2009-01-01"     # splits are needed back to the start of XBRL d
 FILINGS_LOOKBACK_DAYS = 3 * 365
 INSIDER_LOOKBACK_DAYS = 180      # one HTTP call per Form 4, so keep this bounded
 NEWS_LOOKBACK_DAYS = 90
+ALPACA_BATCH = 100              # symbols per Alpaca request
 BENCHMARK = "SPY"                # priced like a stock, used for beta / relative return
 
 # Tickers whose listed share is a fraction of the share class the filings report.
@@ -55,6 +56,70 @@ FRED_SERIES = {
     "VIXCLS": "VIX volatility index",
     "DTWEXBGS": "US dollar index (broad)",
 }
+
+# Sector from the SEC industry code (SIC), only where the code clearly implies one sector.
+# Codes that mix sectors are left out on purpose, so those companies get no sector rather
+# than a wrong one: e.g. 3841 (3M files next to medical-device makers), 7370 (Alphabet and
+# Meta next to software firms), 7389 (Visa, Uber, Accenture: "business services"), 3559
+# (Lam Research as "special industry machinery"). The SEC's own industry description is
+# always kept in `sic_description`. Ranges are inclusive.
+SIC_SECTORS = [
+    (1000, 1099, "Materials"),               # metal mining
+    (1311, 1389, "Energy"),                  # oil & gas extraction and field services
+    (1731, 1731, "Industrials"),             # electrical contractors
+    (2000, 2099, "Consumer Staples"),        # food and beverages
+    (2111, 2199, "Consumer Staples"),        # tobacco
+    (2810, 2829, "Materials"),               # industrial chemicals, plastics
+    (2833, 2836, "Health Care"),             # drugs and biologics
+    (2844, 2844, "Consumer Staples"),        # cosmetics and toiletries
+    (2900, 2999, "Energy"),                  # petroleum refining
+    (3021, 3021, "Consumer Discretionary"),  # footwear
+    (3490, 3499, "Industrials"),             # fabricated metal products
+    (3510, 3549, "Industrials"),             # engines, farm, construction, metalworking machinery
+    (3560, 3569, "Industrials"),             # general industrial machinery
+    (3570, 3579, "Technology"),              # computers, storage, networking
+    (3580, 3599, "Industrials"),             # HVAC, misc industrial machinery
+    (3600, 3629, "Industrials"),             # electrical equipment
+    (3661, 3669, "Technology"),              # communications equipment
+    (3672, 3678, "Technology"),              # circuit boards, semiconductors, connectors
+    (3711, 3716, "Consumer Discretionary"),  # motor vehicles
+    (3720, 3769, "Industrials"),             # aerospace, ships, defense
+    (3812, 3812, "Industrials"),             # defense electronics
+    (3822, 3822, "Industrials"),             # building controls
+    (3842, 3851, "Health Care"),             # medical appliances and devices
+    (4011, 4013, "Industrials"),             # railroads
+    (4210, 4215, "Industrials"),             # trucking and couriers
+    (4512, 4581, "Industrials"),             # airlines, air courier
+    (4610, 4619, "Energy"),                  # pipelines
+    (4812, 4899, "Communication Services"),  # telecom, cable
+    (4900, 4941, "Utilities"),               # electric, gas, water utilities
+    (4950, 4959, "Industrials"),             # waste management
+    (5122, 5122, "Health Care"),             # drug wholesale
+    (5211, 5211, "Consumer Discretionary"),  # home improvement retail
+    (5311, 5399, "Consumer Staples"),        # general merchandise and warehouse clubs
+    (5500, 5599, "Consumer Discretionary"),  # auto dealers and parts
+    (5600, 5699, "Consumer Discretionary"),  # apparel retail
+    (5800, 5899, "Consumer Discretionary"),  # restaurants
+    (5961, 5961, "Consumer Discretionary"),  # online and catalog retail
+    (6000, 6323, "Financials"),              # banks, brokers, asset managers, life insurance
+    (6324, 6324, "Health Care"),             # health insurers (UnitedHealth, Elevance, Cigna)
+    (6325, 6411, "Financials"),              # property and casualty insurance, brokers
+    (6798, 6798, "Real Estate"),             # REITs
+    (7011, 7011, "Consumer Discretionary"),  # hotels
+    (7320, 7320, "Financials"),              # credit rating agencies
+    (7359, 7359, "Industrials"),             # equipment rental
+    (7371, 7373, "Technology"),              # software
+    (7812, 7841, "Communication Services"),  # film, TV, streaming
+    (8060, 8069, "Health Care"),             # hospitals
+]
+
+
+def sector_for_sic(sic) -> str | None:
+    if not (sic and str(sic).isdigit()):
+        return None
+    code = int(sic)
+    return next((sector for low, high, sector in SIC_SECTORS if low <= code <= high), None)
+
 
 # Which macro series matter most per sector, with a one-line beginner explanation.
 SECTOR_MACRO = {
@@ -126,10 +191,10 @@ INSIDER_CODES = {
 }
 
 
-def load_universe() -> dict[str, str]:
-    """ticker -> sector, from universe.csv. Add a line there to track a new stock."""
+def load_universe() -> list[str]:
+    """Tickers from universe.csv. Add a line there (or run `python -m pipeline.universe`)."""
     with open(ROOT / "universe.csv", newline="") as f:
-        return {row["ticker"].strip(): row["sector"].strip() for row in csv.DictReader(f)}
+        return [row["ticker"].strip() for row in csv.DictReader(f)]
 
 
 def env(name: str) -> str:

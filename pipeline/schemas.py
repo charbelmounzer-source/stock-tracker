@@ -59,7 +59,7 @@ TABLES = {
             ("ticker", S, "Exchange ticker (e.g. BRK.B)"),
             ("cik", S, "SEC company identifier, 10 digits"),
             ("company_name", S, "Legal name from the SEC"),
-            ("sector", S, "Our own sector label, from universe.csv"),
+            ("sector", S, "Sector implied by the SEC industry code. Empty when the code mixes sectors"),
             ("sic_code", S, "SEC industry code"),
             ("sic_description", S, "SEC industry description"),
             ("is_financial", B, "Bank, broker or insurer (SIC 6000-6499)"),

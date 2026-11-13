@@ -21,11 +21,20 @@ def test_flatten_facts_keeps_every_fact_and_tag_label():
 
 
 def test_parse_company():
-    company = edgar.parse_company("TEST", "Technology", "0000000001", fakes.submissions())
+    company = edgar.parse_company("TEST", "0000000001", fakes.submissions())
     assert company["company_name"] == "Test Co" and company["sector"] == "Technology"
     assert company["is_financial"] is False
     assert company["earliest_filing_date"] == "2024-02-10"
-    assert edgar.parse_company("BANK", "Financials", "2", fakes.submissions(sic="6021"))["is_financial"] is True
+    assert edgar.parse_company("BANK", "2", fakes.submissions(sic="6021"))["is_financial"] is True
+
+
+def test_sector_only_where_the_sic_code_implies_one():
+    from pipeline import config
+    assert config.sector_for_sic("3674") == "Technology"
+    assert config.sector_for_sic("6324") == "Health Care"   # health insurers, inside the finance range
+    assert config.sector_for_sic("6021") == "Financials"
+    for mixed in ("7389", "3841", "7370", None, ""):        # codes that mix sectors: empty, not a guess
+        assert config.sector_for_sic(mixed) is None
 
 
 def test_parse_filings_filters_labels_and_links():
@@ -126,6 +135,30 @@ def test_fetch_news_one_row_per_tracked_ticker():
     assert sorted(news["ticker"]) == ["AAA", "BBB"]  # ZZZ is not tracked
     assert news["n_symbols"].eq(3).all() and news["all_symbols"].eq("AAA,BBB,ZZZ").all()
     assert news["summary"].isna().all()
+
+
+def test_alpaca_requests_are_batched_without_duplicates(monkeypatch):
+    monkeypatch.setattr("pipeline.config.ALPACA_BATCH", 2)
+    symbols = ["AAA", "BBB", "CCC", "DDD", "EEE"]
+    article = {"id": 7, "headline": "h", "summary": "", "author": "Jo", "source": "benzinga",
+               "url": "https://example.com/a", "created_at": "2024-06-28T12:00:00Z",
+               "updated_at": "2024-06-28T12:05:00Z", "symbols": ["BBB", "CCC"]}
+
+    def handler(url, params):
+        if url.endswith("/news"):
+            return {"news": [article], "next_page_token": None}
+        if url.endswith("/corporate-actions"):
+            return {"corporate_actions": {"cash_dividends": [
+                {"symbol": s, "rate": 1.0, "special": False, "ex_date": "2024-05-10"}
+                for s in params["symbols"].split(",")]}}
+        return {"bars": fakes.bars(params["symbols"].split(","), days=3, end="2024-07-01"), "next_page_token": None}
+    client = fakes.FakeClient(handler)
+    prices = alpaca.fetch_prices(client, symbols, "2024-06-01", now=NOW)
+    actions = alpaca.fetch_corporate_actions(client, symbols, "2009-01-01", "2024-07-01")
+    news = alpaca.fetch_news(client, symbols, "2024-06-01", "2024-07-01")
+    assert all(len(params["symbols"].split(",")) <= 2 for _, params in client.calls)
+    assert sorted(prices["ticker"].unique()) == symbols and sorted(actions["ticker"]) == symbols
+    assert sorted(news["ticker"]) == ["BBB", "CCC"]  # one row each, though they sit in different batches
 
 
 # -------------------------------------------------------------------- FRED

@@ -22,7 +22,7 @@ def days_ago(n: int) -> str:
 
 
 class Run:
-    def __init__(self, sink, universe: dict[str, str]):
+    def __init__(self, sink, universe: list[str]):
         self.sink = sink
         self.universe = universe
         self.frames: dict[str, pd.DataFrame] = {}
@@ -55,10 +55,10 @@ def companies(run: Run):
     """EDGAR company info and recent filings (one payload gives both)."""
     cutoff = days_ago(config.FILINGS_LOOKBACK_DAYS)
     company_rows, filing_rows = [], []
-    for ticker, sector in run.universe.items():
+    for ticker in run.universe:
         cik = run.cik(ticker)
         submissions = edgar.fetch_submissions(run.edgar, cik)
-        company_rows.append(edgar.parse_company(ticker, sector, cik, submissions))
+        company_rows.append(edgar.parse_company(ticker, cik, submissions))
         blocks = edgar.fetch_filing_blocks(run.edgar, submissions, cutoff)
         filing_rows += edgar.parse_filings(ticker, cik, blocks, cutoff)
     run.save("companies", pd.DataFrame(company_rows))
@@ -180,7 +180,7 @@ def main(argv=None) -> int:
         unknown = set(wanted) - set(universe)
         if unknown:
             parser.error(f"not in universe.csv: {sorted(unknown)}")
-        universe = {t: universe[t] for t in wanted}
+        universe = wanted
     selected = args.only.split(",") if args.only else list(STEPS)
     unknown = set(selected) - set(STEPS)
     if unknown:

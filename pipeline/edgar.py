@@ -51,7 +51,7 @@ def fetch_filing_blocks(c: Client, submissions: dict, cutoff: str) -> list[dict]
     return blocks
 
 
-def parse_company(ticker: str, sector: str, cik: str, sub: dict) -> dict:
+def parse_company(ticker: str, cik: str, sub: dict) -> dict:
     filing_dates = list(sub["filings"]["recent"].get("filingDate", []))
     filing_dates += [p["filingFrom"] for p in sub["filings"].get("files", []) if p.get("filingFrom")]
     sic = sub.get("sic") or None
@@ -60,7 +60,7 @@ def parse_company(ticker: str, sector: str, cik: str, sub: dict) -> dict:
         "ticker": ticker,
         "cik": cik,
         "company_name": sub.get("name"),
-        "sector": sector,
+        "sector": config.sector_for_sic(sic),
         "sic_code": sic,
         "sic_description": sub.get("sicDescription") or None,
         "is_financial": bool(sic and str(sic).isdigit() and low <= int(sic) <= high),

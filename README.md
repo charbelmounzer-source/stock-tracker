@@ -120,10 +120,19 @@ branch. `.github/workflows/tests.yml` runs the tests on every push.
 
 ## Adding a stock
 
-Add a line to `universe.csv` (`ticker,sector`) and run the pipeline. The CIK, name and
-industry are looked up from the SEC. Sectors are our own labels, chosen to be readable; SEC
-industry codes are kept alongside but are too dated to show a beginner (Apple is "Electronic
-Computers").
+Add a line to `universe.csv` (one ticker per line) and run the pipeline, or grow the list
+with `python -m pipeline.universe 250`: it goes down the SEC's ticker list (roughly largest
+first; the SEC does not document the order) and adds NYSE / Nasdaq companies that filed a
+10-K in the last 15 months, until the list has that many. Existing tickers are always kept.
+Foreign companies filing 20-F / 40-F (ASML, Toyota) are skipped: their numbers are not in
+US GAAP.
+
+The CIK, name and SEC industry are looked up from the SEC. The **sector** comes from the
+SEC industry code through one table (`SIC_SECTORS` in `pipeline/config.py`), only where the
+code clearly implies a sector. Codes that mix sectors give no sector rather than a wrong one:
+Alphabet and Meta (7370, next to software firms), 3M (3841, next to medical devices), Visa,
+Mastercard, Uber, Accenture (7389, "business services"). About 30 of 200 stocks have no
+sector; the SEC's industry description is always there.
 
 ## Design choices
 
@@ -243,7 +252,8 @@ Needs a paid source:
 
 - Analyst estimates, price targets and upcoming earnings dates.
 - Real-time or intraday prices for all exchanges, and price history before 2016.
-- Clean sector and industry classification (GICS).
+- Clean sector and industry classification (GICS) for every stock, including the ~30 that the
+  SEC industry code cannot place.
 - Social sentiment (Reddit, X, StockTwits) at any useful scale.
 - EU stocks: no free, commercially usable price source. Fundamentals are partly free through
   filings.xbrl.org (annual only).
@@ -261,7 +271,7 @@ Needs a paid source:
 ## Repository layout
 
 ```
-universe.csv            the stocks tracked, with our sector labels
+universe.csv            the stocks tracked (one ticker per line)
 pipeline/
   __main__.py           the runner: steps, order, failure handling
   config.py             every setting and lookup table
