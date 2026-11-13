@@ -44,7 +44,7 @@ to BigQuery as column descriptions and shown as tooltips in the viewer.
 ```bash
 pip install -r requirements.txt
 cp .env.example .env        # then fill it in
-python -m pytest -q         # 74 tests, no network or credentials needed
+python -m pytest -q         # 77 tests, no network or credentials needed
 ```
 
 Keys needed (all free): an [Alpaca](https://alpaca.markets/) account (paper keys are enough), a
@@ -99,7 +99,11 @@ From the first 49-stock run. "Fixed" means fixed in code and unit-tested, not ye
 | MCD | Share count filed in millions | Fixed and confirmed on real data |
 | XOM | New SEC registrant since July 2026 | Fixed and confirmed: the previous registrant's history is merged |
 | HON | Price showed the 2026 spin-off as a 42% loss | Fixed and confirmed: prices adjust for spin-offs |
-| ORCL, CAT, COP, NKE, GE, VZ, T | Some of debt, EBITDA, operating margin or free cash flow empty | Tags added after the second run; not yet re-run. COP, NEE and PLD use company-specific capex tags that the API does not expose |
+| ORCL, NKE, VZ | Debt, EBITDA or free cash flow empty | Fixed and confirmed on real data 13 Nov 2026. Oracle's 10-Qs tag long-term debt `LongTermNotesAndLoans` (equal to its 10-K tag at both year ends); total debt $125B at Aug 2026 |
+| T | Free cash flow empty | Fixed and confirmed 13 Nov 2026. AT&T moved operating cash flow to the "continuing operations" tag in 2026 while FY2025 sits under the plain tag, so no trailing year could be built. The two tags are now pooled from their last disagreement on (2022), only filling gaps. TTM FCF $17.8B at Sep 2026. Also fills some 2016-17 ABBV quarters |
+| CAT | Debt empty | Not fixable from this API: Caterpillar tags its debt with company-specific tags only |
+| GE | Operating income, EBITDA, operating margin empty | Expected: GE reports neither an operating income nor an interest expense line, so no fallback applies |
+| COP, NEE, PLD | Capex (so free cash flow) empty | Not fixable from this API: company-specific capex tags |
 | 13 stocks | Gross margin empty | Expected: these companies do not report a cost of revenue (telecoms, utilities, restaurants, Visa, Exxon...) |
 
 To see what a company filed for each empty metric, and so which tags to add:
