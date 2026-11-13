@@ -27,6 +27,16 @@ SHARE_CLASS_MULTIPLIER = {"BRK.B": 1500}
 # Exxon moved to a new holding company (new CIK) on 1 July 2026.
 PREDECESSOR_CIKS = {"XOM": ["0000034088"]}
 
+# Companies that file one joint 10-Q/10-K with their subsidiaries. Since mid-2026, EDGAR's
+# companyfacts API lists the parent's numbers from those joint reports under a subsidiary's
+# CIK instead of the parent's. Only facts from the parent's own filings are taken from
+# these CIKs: some also hold the subsidiary's own older reports, which must stay out.
+CO_REGISTRANT_CIKS = {
+    "NEE": ["0000037634"],  # Florida Power & Light
+    "DUK": ["0000017797"],  # Duke Energy Progress
+    "PLD": ["0001045610"],  # Prologis, L.P.
+}
+
 # SIC 6000-6499 = banks, brokers, insurers. Debt, EBITDA and cash-flow metrics do not
 # mean the same thing for them, so the snapshot leaves those metrics empty.
 FINANCIAL_SIC_RANGE = (6000, 6499)
