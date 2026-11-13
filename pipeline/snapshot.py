@@ -133,11 +133,6 @@ def build_snapshot(companies: pd.DataFrame, prices: pd.DataFrame | None = None,
                 row["revenue_yoy_quarter"] = quarters["revenue_yoy"].iloc[-1]
             if len(ttm):
                 t = ttm.iloc[-1]
-                if shares is None and row.get("dividends_per_share_ttm", 0) > 0 and t["dividends_paid"] > 0:
-                    # Last resort for multi-class companies (Visa): the dividend bill divided by
-                    # the dividend per share is the share count, on an as-converted basis.
-                    shares = t["dividends_paid"] / row["dividends_per_share_ttm"] / multiplier
-                    shares_as_of, basis = t["period_end"], "implied from dividends"
                 # Diluted EPS as reported; else basic; else profit / shares (multi-class companies
                 # often report EPS per share class, which EDGAR's API leaves out).
                 eps = next((v for v in (t["eps_diluted"], t["eps_basic"], _div(t["net_income"], shares))

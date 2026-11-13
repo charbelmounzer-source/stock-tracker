@@ -94,8 +94,8 @@ From the first 49-stock run. "Fixed" means fixed in code and unit-tested, not ye
 | Stock | Problem | State |
 |---|---|---|
 | NEE, DUK, PLD | Results stopped at March 2026 | Fixed 13 Nov 2026. They file jointly with subsidiaries, and since mid-2026 EDGAR lists the parent's facts from those joint 10-Qs under a subsidiary's CIK (FPL, Duke Energy Progress, Prologis L.P.). `CO_REGISTRANT_CIKS` merges them in, keeping only facts from the parent's own filings. Checked on the real API: ~99% of comparative figures match the parent's own; all three now reach Sep 2026 |
-| BRK.B | No usable share count since 2015 | Market cap and P/E left empty. A real fix needs the cover-page count from the filing itself |
-| V | No share count or EPS in EDGAR's API (multi-class) | Approximated: shares = dividends paid / dividend per share (`shares_basis` says so). Gave a market cap of $807B |
+| BRK.B | No usable share count since 2015 | Left empty on purpose: market cap and P/E. Reading the filing's cover page would be a one-company patch |
+| V | No share count or EPS in EDGAR's API (multi-class) | Left empty on purpose: market cap, EPS and P/E. The earlier estimate from dividends was removed (13 Nov 2026) |
 | MCD | Share count filed in millions | Fixed and confirmed on real data |
 | XOM | New SEC registrant since July 2026 | Fixed and confirmed: the previous registrant's history is merged |
 | HON | Price showed the 2026 spin-off as a 42% loss | Fixed and confirmed: prices adjust for spin-offs |
@@ -202,7 +202,7 @@ candidate tag, so it survives a company re-filing old years under a new tag.
 - **Prices are adjusted for spin-offs as well as splits**, so past prices of GE or Honeywell
   are lower than what traded at the time.
 - **Fallbacks are approximations**: operating income as pre-tax income plus interest, equity
-  including minorities, share count implied from dividends.
+  including minorities.
 - **Banks, brokers and insurers** (SIC 6000-6499) have gross margin, EBITDA, debt, enterprise
   value and cash-flow metrics left empty in `stock_snapshot`: they do not mean the same thing
   there. Visa is not in that range and is treated as a normal company.

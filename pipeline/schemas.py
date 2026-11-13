@@ -275,8 +275,7 @@ TABLES = {
             ("current_ratio", F, "Current assets / current liabilities"),
             ("shares", F, "Share count used for market cap. Empty when no recent, plausible count exists"),
             ("shares_as_of", D, "Period end of that share count"),
-            ("shares_basis", S, "Where the share count comes from: balance sheet, weighted average, "
-                                "or implied from dividends (approximate)"),
+            ("shares_basis", S, "Where the share count comes from: balance sheet or weighted average"),
             ("market_cap", F, "close x shares"),
             ("enterprise_value", F, "Market cap plus net debt"),
             ("pe_ttm", F, "Price / trailing EPS. Empty when earnings are negative"),
