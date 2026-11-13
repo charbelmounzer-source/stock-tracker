@@ -22,11 +22,9 @@ Only free data sources for now; paid ones are to be evaluated later.
 
 ## Next steps, in order
 
-1. **NEE, DUK, PLD are stale** (results stop at March 2026). Their later 10-Qs exist but
-   EDGAR's companyfacts API returns nothing from them under the parent CIK. All three file
-   jointly with subsidiaries. Test with `python -m pipeline.diagnose probe <subsidiary CIK>`
-   and, if the facts are there, add the CIK to `PREDECESSOR_CIKS` in `pipeline/config.py`
-   (check that this does not pull in subsidiary-only figures).
+1. **NEE, DUK, PLD: fixed 13 Nov 2026** via `CO_REGISTRANT_CIKS` (see README). Confirm on
+   the next nightly run; NEE's Q3 2026 net income ($4.8B, about twice last year's) is worth a
+   look against NextEra's press release.
 2. **Re-run and re-check** the tag additions made after the second run (ORCL, CAT, COP, NKE,
    GE, VZ, T debt / EBITDA / free cash flow). AT&T's empty free cash flow is unexplained.
 3. **BRK.B** has no market cap: needs the cover-page share count from the filing itself.
@@ -50,6 +48,7 @@ Only free data sources for now; paid ones are to be evaluated later.
 - Every table is fully rebuilt on each run (load jobs, WRITE_TRUNCATE). No incremental logic yet.
 - `pipeline/schemas.py` is the data dictionary; a new column must be added there first.
 - A missing number is better than a wrong one: leave metrics empty when the inputs are doubtful.
-- The sandbox running Claude cannot reach the SEC or Alpaca, so new logic is tested on
+- Claude's cloud environment `stock-tracker` can reach the SEC (data.sec.gov, www.sec.gov;
+  needs `SEC_USER_AGENT`) but not Alpaca, BigQuery or FRED. Logic needing those is tested on
   synthetic data (`tests/fakes.py`) and then validated by the owner's real run. Say so plainly.
 - Run `python -m pytest -q` before every push.

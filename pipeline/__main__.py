@@ -73,6 +73,13 @@ def facts(run: Run):
             f, t = edgar.flatten_facts(ticker, edgar.fetch_company_facts(run.edgar, cik))
             fact_frames.append(f)
             tag_frames.append(t)
+        co_registrants = config.CO_REGISTRANT_CIKS.get(ticker, [])
+        if co_registrants:
+            own = set(edgar.fetch_submissions(run.edgar, run.cik(ticker))["filings"]["recent"]["accessionNumber"])
+            for cik in co_registrants:
+                f, t = edgar.flatten_facts(ticker, edgar.fetch_company_facts(run.edgar, cik))
+                fact_frames.append(f[f["accession_number"].isin(own)])
+                tag_frames.append(t)
     run.save("xbrl_facts", pd.concat(fact_frames, ignore_index=True))
     run.save("xbrl_tags", pd.concat(tag_frames, ignore_index=True).drop_duplicates(["taxonomy", "tag"]))
 

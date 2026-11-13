@@ -7,8 +7,8 @@ is an internal viewer for checking the data.
 
 > **Status: usable for 45 of 49 stocks, with four known gaps.** Two full runs on 11 Nov 2026.
 > Apple and JPMorgan were checked against published figures; the others were checked for
-> plausibility only, not against a second source. NEE, DUK and PLD show results that stop in
-> March 2026, and BRK.B has no market cap. [Known problems](#known-problems) has the detail.
+> plausibility only, not against a second source. NEE, DUK and PLD were stale until the fix of
+> 13 Nov 2026 (see Known problems), and BRK.B has no market cap. [Known problems](#known-problems) has the detail.
 
 ## How it works
 
@@ -44,7 +44,7 @@ to BigQuery as column descriptions and shown as tooltips in the viewer.
 ```bash
 pip install -r requirements.txt
 cp .env.example .env        # then fill it in
-python -m pytest -q         # 73 tests, no network or credentials needed
+python -m pytest -q         # 74 tests, no network or credentials needed
 ```
 
 Keys needed (all free): an [Alpaca](https://alpaca.markets/) account (paper keys are enough), a
@@ -93,7 +93,7 @@ From the first 49-stock run. "Fixed" means fixed in code and unit-tested, not ye
 
 | Stock | Problem | State |
 |---|---|---|
-| NEE, DUK, PLD | Results stop at March 2026 | Open. Their later 10-Qs exist, but EDGAR's facts API returns nothing from them under the company's CIK. All three file jointly with subsidiaries, so the facts may sit under a subsidiary's CIK: check with `python -m pipeline.diagnose probe <CIK>`, then add it to `PREDECESSOR_CIKS` |
+| NEE, DUK, PLD | Results stopped at March 2026 | Fixed 13 Nov 2026. They file jointly with subsidiaries, and since mid-2026 EDGAR lists the parent's facts from those joint 10-Qs under a subsidiary's CIK (FPL, Duke Energy Progress, Prologis L.P.). `CO_REGISTRANT_CIKS` merges them in, keeping only facts from the parent's own filings. Checked on the real API: ~99% of comparative figures match the parent's own; all three now reach Sep 2026 |
 | BRK.B | No usable share count since 2015 | Market cap and P/E left empty. A real fix needs the cover-page count from the filing itself |
 | V | No share count or EPS in EDGAR's API (multi-class) | Approximated: shares = dividends paid / dividend per share (`shares_basis` says so). Gave a market cap of $807B |
 | MCD | Share count filed in millions | Fixed and confirmed on real data |

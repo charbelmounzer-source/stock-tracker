@@ -104,6 +104,19 @@ def test_predecessor_registrant_history_is_merged(fake_sources, tmp_path, monkey
     assert not read(tmp_path, "fundamentals").duplicated(["period_type", "period_end"]).any()
 
 
+def test_co_registrant_facts_are_limited_to_the_parents_filings(fake_sources, tmp_path, monkeypatch):
+    monkeypatch.setattr("pipeline.config.CO_REGISTRANT_CIKS", {"AAPL": ["0000000077"]})
+    joint = fakes.payload([("JointReportTag", "USD", "2024-01-01", "2024-03-31", 5.0, "10-Q", "2024-05-05"),
+                           ("SubsidiaryOwnTag", "USD", "2023-01-01", "2023-12-31", 9.0, "10-K", "2024-02-20")])
+    joint["facts"]["us-gaap"]["JointReportTag"]["units"]["USD"][0]["accn"] = "0001-24-000002"  # parent's 10-Q
+    original = edgar.fetch_company_facts
+    monkeypatch.setattr(edgar, "fetch_company_facts",
+                        lambda c, cik: joint if cik == "0000000077" else original(c, cik))
+    assert runner.main(["--local", str(tmp_path), "--tickers", "AAPL", "--only", "facts,fundamentals"]) == 0
+    tags = set(read(tmp_path, "xbrl_facts")["tag"])
+    assert "JointReportTag" in tags and "SubsidiaryOwnTag" not in tags
+
+
 def test_only_runs_the_requested_steps(fake_sources, tmp_path):
     assert runner.main(["--local", str(tmp_path), "--tickers", "AAPL", "--only", "prices,macro"]) == 0
     assert sorted(p.name for p in tmp_path.iterdir()) == ["macro.csv", "prices.csv"]
